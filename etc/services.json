@@ -6,6 +6,7 @@
   "routes": {
     "host": "127.0.0.1",
     "port": 3201,
+    "parallel": 2,
     "size": 2,
     "hot": 1,
     "timeout": "30s"
@@ -13,6 +14,7 @@
   "drivers": {
     "host": "127.0.0.1",
     "port": 3202,
+    "parallel": 2,
     "size": 2,
     "hot": 1,
     "timeout": "30s"

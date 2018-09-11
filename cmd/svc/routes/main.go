@@ -13,6 +13,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"runtime"
 	"time"
 )
 
@@ -56,11 +57,12 @@ func main() {
 	}
 
 	svcConfigs := make(map[string]struct {
-		Host    string
-		Port    int
-		Size    int
-		Hot     int
-		Timeout string
+		Host     string
+		Port     int
+		Parallel int
+		Size     int
+		Hot      int
+		Timeout  string
 	})
 	err = json.Unmarshal(servicesEtc, &svcConfigs)
 	if err != nil {
@@ -85,9 +87,16 @@ func main() {
 	} else {
 		// started with -team, assume proc worker process
 
+		// apply parallelism config
+		runtime.GOMAXPROCS(poolConfig.Parallel)
+		glog.V(1).Infof(
+			"Routes service proc [pid=%d] parallelism set to %d by configured %d\n",
+			os.Getpid(), runtime.GOMAXPROCS(0), poolConfig.Parallel,
+		)
+
 		glog.Infof("Routes service proc [pid=%d,team=%s] starting ...", os.Getpid(), teamAddr)
 		hbi.ServeTCP(NewServiceContext, fmt.Sprintf("%s:0", poolConfig.Host), func(listener *net.TCPListener) {
-			glog.Infof("Routes service proc [pid=%d] listening %+v", os.Getpid(), listener.Addr())
+			glog.Infof("Routes service proc [pid=%d,team=%s] listening %+v", os.Getpid(), teamAddr, listener.Addr())
 			procPort := listener.Addr().(*net.TCPAddr).Port
 
 			var m4w *hbi.TCPConn
@@ -96,7 +105,7 @@ func main() {
 			p2p.Notif(fmt.Sprintf(`
 WorkerOnline(%#v,%#v)
 `, os.Getpid(), procPort))
-			glog.Infof("Routes service proc [pid=%d] reported to master at [%s]", os.Getpid(), teamAddr)
+			glog.Infof("Routes service proc [pid=%d,team=%s] reported to master.", os.Getpid(), teamAddr)
 		})
 
 	}
