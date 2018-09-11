@@ -3,11 +3,17 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
+	. "github.com/complyue/ddgo/pkg/routes"
+	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
+	"github.com/complyue/hbigo/pkg/svcpool"
 	"github.com/golang/glog"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
+	"time"
 )
 
 func init() {
@@ -22,11 +28,11 @@ func init() {
 
 }
 
-var teamPort int
+var teamAddr string
 
 func init() {
 
-	flag.IntVar(&teamPort, "team", 0, "Teaming port")
+	flag.StringVar(&teamAddr, "team", "#", "service pool teaming address")
 
 }
 
@@ -43,30 +49,55 @@ func main() {
 
 	flag.Parse()
 
-	if teamPort <= 0 {
-		// started directly, assume team master
+	servicesEtc, err := ioutil.ReadFile("etc/services.json")
+	if err != nil {
+		cwd, _ := os.Getwd()
+		panic(errors.Wrapf(err, "Can NOT read etc/services.json`, [%s] may not be the right directory ?\n", cwd))
+	}
 
-		//img, err := os.Executable()
-		//if nil != err {
-		//	log.Fatal("No executable?!")
-		//}
+	svcConfigs := make(map[string]struct {
+		Host    string
+		Port    int
+		Size    int
+		Hot     int
+		Timeout string
+	})
+	err = json.Unmarshal(servicesEtc, &svcConfigs)
+	if err != nil {
+		panic(errors.Wrap(err, "Failed parsing services.json"))
+	}
 
-		servicesEtc, err := ioutil.ReadFile("etc/services.json")
+	poolConfig := svcConfigs["routes"]
+
+	if teamAddr == "#" {
+		// started without -team, assume pool master
+
+		glog.Infof("Starting routes service pool with config: %+v\n", poolConfig)
+		startProcessTimeout, err := time.ParseDuration(poolConfig.Timeout)
 		if err != nil {
-			cwd, _ := os.Getwd()
-			panic(errors.Wrapf(err, "Can NOT read etc/services.json`, [%s] may not be the right directory ?\n", cwd))
+			return
 		}
 
-		svcAddrs := make(map[string]struct {
-			Host string
-			Port int
+		var master *svcpool.Master
+		master, err = svcpool.NewMaster(poolConfig.Size, poolConfig.Hot, startProcessTimeout)
+		master.Serve(fmt.Sprintf("%s:%d", poolConfig.Host, poolConfig.Port))
+
+	} else {
+		// started with -team, assume proc worker process
+
+		glog.Infof("Routes service proc [pid=%d,team=%s] starting ...", os.Getpid(), teamAddr)
+		hbi.ServeTCP(NewServiceContext, fmt.Sprintf("%s:0", poolConfig.Host), func(listener *net.TCPListener) {
+			glog.Infof("Routes service proc [pid=%d] listening %+v", os.Getpid(), listener.Addr())
+			procPort := listener.Addr().(*net.TCPAddr).Port
+
+			var m4w *hbi.TCPConn
+			m4w, err = hbi.DialTCP(svcpool.NewWorkerHoContext(), teamAddr)
+			p2p := m4w.PoToPeer()
+			p2p.Notif(fmt.Sprintf(`
+WorkerOnline(%#v,%#v)
+`, os.Getpid(), procPort))
+			glog.Infof("Routes service proc [pid=%d] reported to master at [%s]", os.Getpid(), teamAddr)
 		})
-		err = json.Unmarshal(servicesEtc, &svcAddrs)
-		if err != nil {
-			panic(errors.Wrap(err, "Failed parsing services.json"))
-		}
-
-		glog.Infof("Starting routes service at %+v\n", svcAddrs["routes"])
 
 	}
 
