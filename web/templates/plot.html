@@ -1,0 +1,58 @@
+{% extends "layout.html" %}
+
+{% block head %}
+
+{{ block.Super|safe }}
+
+<script type="text/javascript">
+    window.tid = "{{ tid }}";
+</script>
+
+{% endblock head %}
+
+{% block body_content %}
+
+<div class="page_header">
+    <h3>{{ title }}</h3>
+
+</div>
+
+<div class="flex-row">
+    <input type="radio" id="move_things" name="tool"/> <label for="move_things">
+    Move things around
+</label>
+    <input type="radio" id="plan_route" name="tool"/> <label for="plan_route">
+    Plan Route
+</label>
+    <input type="radio" id="toggle_stop" name="tool" checked/> <label for="toggle_stop">
+    Toggle stop
+</label>
+    <input type="radio" id="place_truck" name="tool"/> <label for="place_truck">
+    Place Truck
+</label>
+</div>
+
+<section class="ShowArea" id="show_area">
+
+
+</section>
+
+<section id="tmpl" style="display: none">
+    <div class="WayPoint">
+        <div class="WayPointIcon"></div>
+        <span class="Label">WP##</span>
+    </div>
+    <div class="Truck">
+        <div class="TruckIcon"></div>
+        <span class="Label">Truck##</span>
+    </div>
+</section>
+
+{% endblock body_content %}
+
+
+{% block body_end_scripts %}
+{{ block.Super|safe }}
+
+<script type="text/javascript" src="/static/plot.es6"></script>
+{% endblock body_end_scripts %}

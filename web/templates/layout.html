@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    {% block head %}
+
+    <link rel="icon" href="/static/favicon.ico"/>
+    <link rel="stylesheet" type="text/css" href="/static/dd.css"/>
+
+    <title> {% block title %} {{ title }} {% endblock %} </title>
+
+    {% block head_scripts %}
+    <script type="text/javascript" src="/static/jquery-3.2.1.js"></script>
+    {% endblock head_scripts %}
+
+    {% endblock head %}
+</head>
+<body>
+
+{% block body %}
+
+{% block body_begin_scripts %}
+{% endblock body_begin_scripts %}
+
+{% block body_content %}
+???
+{% endblock body_content %}
+
+{% block body_end_scripts %}
+<script type="text/javascript" src="/static/dd.es6"></script>
+{% endblock body_end_scripts %}
+
+{% endblock body %}
+
+</body>
+</html>

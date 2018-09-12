@@ -1,15 +1,14 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	. "github.com/complyue/ddgo/pkg/routes"
+	"github.com/complyue/ddgo/pkg/svcs"
 	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/complyue/hbigo/pkg/svcpool"
 	"github.com/golang/glog"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -50,26 +49,11 @@ func main() {
 
 	flag.Parse()
 
-	servicesEtc, err := ioutil.ReadFile("etc/services.json")
+	var poolConfig svcs.ServiceConfig
+	poolConfig, err = svcs.GetServiceConfig("routes")
 	if err != nil {
-		cwd, _ := os.Getwd()
-		panic(errors.Wrapf(err, "Can NOT read etc/services.json`, [%s] may not be the right directory ?\n", cwd))
+		panic(err)
 	}
-
-	svcConfigs := make(map[string]struct {
-		Host     string
-		Port     int
-		Parallel int
-		Size     int
-		Hot      int
-		Timeout  string
-	})
-	err = json.Unmarshal(servicesEtc, &svcConfigs)
-	if err != nil {
-		panic(errors.Wrap(err, "Failed parsing services.json"))
-	}
-
-	poolConfig := svcConfigs["routes"]
 
 	if teamAddr == "#" {
 		// started without -team, assume pool master
