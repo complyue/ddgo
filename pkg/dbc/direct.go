@@ -28,7 +28,8 @@ func DB() *mgo.Database {
 		servicesEtc, err := ioutil.ReadFile("etc/services.json")
 		if err != nil {
 			cwd, _ := os.Getwd()
-			panic(errors.Wrapf(err, "Can NOT read etc/services.json`, [%s] may not be the right directory ?\n", cwd))
+			err = errors.Wrapf(err, "Can NOT read etc/services.json`, [%s] may not be the right directory ?\n", cwd)
+			return nil
 		}
 
 		svcConfigs := make(map[string]struct {
@@ -36,16 +37,17 @@ func DB() *mgo.Database {
 		})
 		err = json.Unmarshal(servicesEtc, &svcConfigs)
 		if err != nil {
-			panic(errors.Wrap(err, "Failed parsing services.json"))
+			err = errors.Wrap(err, "Failed parsing services.json")
+			return nil
 		}
 
 		dbConfig := svcConfigs["db"]
 
 		session, err = mgo.Dial(dbConfig.Url)
 		if err != nil {
-			return
+			return nil
 		}
-		session.DB("dd")
+		db = session.DB("dd")
 	}
 
 	return db

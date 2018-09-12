@@ -3,7 +3,10 @@ package backend
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/complyue/ddgo/pkg/routes"
 	"github.com/complyue/ddgo/pkg/svcs"
+	"github.com/complyue/hbigo/pkg/errors"
+	"github.com/golang/glog"
 	"github.com/kataras/iris"
 	"github.com/kataras/iris/websocket"
 )
@@ -12,18 +15,88 @@ func showWaypoints() (ws *websocket.Server) {
 	ws = websocket.New(websocket.Config{
 		//BinaryMessages: true,
 	})
-
 	ws.OnConnection(func(c websocket.Connection) {
 		tid := c.Context().Params().GetTrim("tid")
+		defer func() {
+			err := recover()
+			if err != nil {
+				errMsg := fmt.Sprintf("%+v", errors.RichError(err))
+				glog.Error(errMsg)
+				jsonBuf, err := json.Marshal(map[string]interface{}{
+					"type": "err",
+					"msg":  errMsg,
+				})
+				c.EmitMessage(jsonBuf)
+				if err != nil {
+					glog.Error(errors.RichError(err))
+				}
+				return
+			}
+		}()
 
-		c.OnMessage(func(data []byte) {
-			message := string(data)
-		})
+		svc, err := svcs.GetRoutesService("", tid)
+		if err != nil {
+			panic(err)
+		}
 
-		c.OnDisconnect(func() {
+		func() { // WatchWaypoints() will call Notif(), will deadlock if called before co.Close()
+			co, err := svc.Posting.Co()
+			panic(err)
+			defer co.Close()
+			err = co.SendCode(fmt.Sprintf(`
+ListWaypoints(%#v)
+`, tid))
+			if err != nil {
+				panic(err)
+			}
+			result, err := co.RecvObj()
+			if err != nil {
+				panic(err)
+			}
+			switch result.(type) {
+			case error:
+				panic(result)
+			case []map[string]interface{}:
+				jsonBuf, err := json.Marshal(map[string]interface{}{
+					"type": "initial",
+					"wps":  result,
+				})
+				if err != nil {
+					panic(err)
+				}
+				c.EmitMessage(jsonBuf)
+			}
+		}()
+
+		svc.HoCtx().(*routes.ConsumerContext).WatchWaypoints(tid, func(wp routes.Waypoint) (stop bool) {
+			wp["_id"] = fmt.Sprintf("%s", wp["_id"]) // convert bson objId to str
+			jsonBuf, err := json.Marshal(map[string]interface{}{
+				"type": "created",
+				"wp":   wp,
+			})
+			if err != nil {
+				glog.Error(errors.RichError(err))
+				c.Disconnect()
+				return true
+			}
+			c.EmitMessage(jsonBuf)
+			return
+		}, func(id string, x, y float64) (stop bool) {
+			jsonBuf, err := json.Marshal(map[string]interface{}{
+				"type":  "moved",
+				"wp_id": id, "x": x, "y": y,
+			})
+			if err != nil {
+				glog.Error(errors.RichError(err))
+				c.Disconnect()
+				return true
+			}
+			c.EmitMessage(jsonBuf)
+			return
 		})
 
 	})
+	return
 }
 
 /*
@@ -104,84 +177,82 @@ list_waypoints({tid!r})
 */
 
 func addWaypoint(ctx iris.Context) {
+	var err error
+	defer func() {
+		if err != nil {
+			ctx.JSON(map[string]string{
+				"err": fmt.Sprintf("%+v", errors.RichError(err)),
+			})
+		} else {
+			// no error
+			ctx.WriteString("{}")
+		}
+	}()
 	tid := ctx.Params().GetTrim("tid")
 
 	var reqData struct {
 		X, Y float64
 	}
-	if err := ctx.ReadJSON(&reqData); err != nil {
-		ctx.StatusCode(iris.StatusBadRequest)
-		ctx.WriteString(err.Error())
+	if err = ctx.ReadJSON(&reqData); err != nil {
 		return
 	}
 
 	/*
 		use tid as session for tenant isolation,
-		and wireKey can further be used to isolate communication channels,
-		per tenant or per other means
+		and tunnel can further be specified to isolate per tenant or per other means
 	*/
-	routesSvc, err := svcs.GetService("routes", "", tid)
+	routesSvc, err := svcs.GetRoutesService("", tid)
 	if err != nil {
 		panic(err)
 	}
 
-	co, err := routesSvc.Co()
-	if err != nil {
-		panic(err)
-	}
-	defer co.Close()
-
-	wp, err := co.Get(fmt.Sprintf(`
-AddWaypoint(%#v,%#v%#v)
-`, tid, reqData.X, reqData.Y))
-	if err != nil {
-		panic(err)
+	// use async notification to cease round trips
+	if err = routesSvc.Posting.Notif(fmt.Sprintf(`
+AddWaypoint(%#v,%#v,%#v)
+`, tid, reqData.X, reqData.Y)); err != nil {
+		return
 	}
 
-	ctx.JSON(map[string]interface{}{
-		"data": json.Marshal(wp),
-	})
+	return
 }
 
 func moveWaypoint(ctx iris.Context) {
+	var err error
+	defer func() {
+		if err != nil {
+			ctx.JSON(map[string]string{
+				"err": fmt.Sprintf("%+v", errors.RichError(err)),
+			})
+		} else {
+			// no error
+			ctx.WriteString("{}")
+		}
+	}()
 	tid := ctx.Params().GetTrim("tid")
 
 	var reqData struct {
 		WpId string
 		X, Y float64
 	}
-	if err := ctx.ReadJSON(&reqData); err != nil {
-		ctx.StatusCode(iris.StatusBadRequest)
-		ctx.WriteString(err.Error())
+	if err = ctx.ReadJSON(&reqData); err != nil {
 		return
 	}
 
 	/*
 		use tid as session for tenant isolation,
-		and wireKey can further be used to isolate communication channels,
-		per tenant or per other means
+		and tunnel can further be specified to isolate per tenant or per other means
 	*/
-	routesSvc, err := svcs.GetService("routes", "", tid)
+	routesSvc, err := svcs.GetRoutesService("", tid)
 	if err != nil {
 		panic(err)
 	}
 
-	co, err := routesSvc.Co()
-	if err != nil {
-		panic(err)
-	}
-	defer co.Close()
-
-	moveResult, err := co.Get(fmt.Sprintf(`
-MoveWaypoint(%#v,%#v,%#v%#v)
-`, tid, reqData.WpId, reqData.X, reqData.Y))
-	if err != nil {
-		panic(err)
+	// use async notification to cease round trips
+	if err = routesSvc.Posting.Notif(fmt.Sprintf(`
+MoveWaypoint(%#v,%#v,%#v,%#v)
+`, tid, reqData.WpId, reqData.X, reqData.Y)); err != nil {
+		return
 	}
 
-	ctx.JSON(map[string]interface{}{
-		"data": json.Marshal(moveResult.(struct {
-			X, Y float64
-		})),
-	})
+	return
 }

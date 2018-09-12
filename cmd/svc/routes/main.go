@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	. "github.com/complyue/ddgo/pkg/routes"
+	"github.com/complyue/ddgo/pkg/routes"
 	"github.com/complyue/ddgo/pkg/svcs"
 	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
@@ -79,7 +79,7 @@ func main() {
 		)
 
 		glog.Infof("Routes service proc [pid=%d,team=%s] starting ...", os.Getpid(), teamAddr)
-		hbi.ServeTCP(NewServiceContext, fmt.Sprintf("%s:0", poolConfig.Host), func(listener *net.TCPListener) {
+		hbi.ServeTCP(routes.NewServiceContext, fmt.Sprintf("%s:0", poolConfig.Host), func(listener *net.TCPListener) {
 			glog.Infof("Routes service proc [pid=%d,team=%s] listening %+v", os.Getpid(), teamAddr, listener.Addr())
 			procPort := listener.Addr().(*net.TCPAddr).Port
 

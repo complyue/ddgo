@@ -3,6 +3,7 @@ package svcs
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/complyue/ddgo/pkg/routes"
 	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/complyue/hbigo/pkg/svcpool"
@@ -53,35 +54,38 @@ func GetServiceConfig(serviceKey string) (cfg ServiceConfig, err error) {
 	return
 }
 
+func GetRoutesService(tunnel string, session string) (svcConn *hbi.TCPConn, err error) {
+	svcConn, err = getService("routes", routes.NewConsumerContext, tunnel, session)
+	return
+}
+
 var svcPools = make(map[string]*svcpool.Consumer)
 var svcMu sync.Mutex
 
-func GetService(serviceKey, wireKey, session string) (svcConn *hbi.TCPConn, err error) {
+func getService(
+	serviceKey string, ctxFact func() hbi.HoContext,
+	tunnel string, session string,
+) (svcConn *hbi.TCPConn, err error) {
 	svcMu.Lock()
 	defer svcMu.Unlock()
 
 	var ok bool
 
-	fullWireKey := fmt.Sprintf("%s@%s", serviceKey, wireKey)
 	var consumer *svcpool.Consumer
-	consumer, ok = svcPools[fullWireKey]
-	if ok && consumer.Pool.Cancelled() {
-		delete(svcPools, fullWireKey)
-		ok = false
-	}
+	consumer, ok = svcPools[serviceKey]
 	if !ok {
 		var cfg ServiceConfig
 		cfg, err = GetServiceConfig(serviceKey)
 		if err != nil {
 			return
 		}
-		consumer, err = svcpool.NewConsumer(hbi.NewHoContext, cfg.Addr())
+		consumer, err = svcpool.NewConsumer(cfg.Addr(), nil)
 		if err != nil {
 			return
 		}
-		svcPools[fullWireKey] = consumer
+		svcPools[serviceKey] = consumer
 	}
 
-	svcConn, err = consumer.GetService(session, true)
+	svcConn, err = consumer.GetService(ctxFact, tunnel, session, true)
 	return
 }
