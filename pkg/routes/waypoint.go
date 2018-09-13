@@ -41,9 +41,10 @@ func NextWpSeq(tid string) int {
 	return lastSeq + 1
 }
 
-func ListWaypoints(tid string) (wps []Waypoint, err error) {
-	err = coll().Find(bson.M{"tid": tid}).All(&wps)
-	return
+func ListWaypoints(tid string) ([]Waypoint, error) {
+	var wps []Waypoint
+	err := coll().Find(bson.M{"tid": tid}).All(&wps)
+	return wps, err
 }
 
 func WatchWaypoints(
@@ -54,8 +55,9 @@ func WatchWaypoints(
 	if stickyTid == "" {
 		NextWpSeq(tid)
 	}
-	if tid != stickyTid {
-		glog.Warningf("Not watching for tid=[%v] as this proc already stuck to [%v]", tid, stickyTid)
+	if stickyTid != "" && tid != stickyTid {
+		glog.Warningf("Not watching for tid=[%v] as this proc already stuck to [%v]",
+			tid, stickyTid)
 		return
 	}
 

@@ -29,7 +29,9 @@ NewError(%#v)
 `, err.Error()))
 		return
 	}
-	buf, err := bson.Marshal(wps)
+	buf, err := bson.Marshal(map[string]interface{}{
+		"wps": wps,
+	})
 	if err != nil {
 		glog.Error(errors.RichError(err))
 		p2p.CoSendCode(fmt.Sprintf(`
@@ -37,19 +39,13 @@ NewError(%#v)
 `, err.Error()))
 		return
 	}
+
 	// convey wps data by a binary stream
 	bc := make(chan []byte, 1)
 	bc <- buf
 	close(bc)
 	err = p2p.CoSendCode(fmt.Sprintf(`
-buf := make([]byte, %v)
-bc := make(chan []byte, 1)
-bc <- buf
-close(bc)
-Ho().CoRecvData(bc)
-var wps []Waypoint
-err := bson.Unmarshal(buf, &wps)
-wps
+ReceiveBSON(%v,[]map[string]interface{}{})
 `, len(buf)))
 	if err != nil {
 		ctx.Cancel(errors.RichError(err))
@@ -120,9 +116,10 @@ func (ctx *ServiceContext) AddWayPoint(tid string, x, y float64) (err error) {
 }
 
 func NewConsumerContext() hbi.HoContext {
-	return &ConsumerContext{
+	ctx := &ConsumerContext{
 		HoContext: hbi.NewHoContext(),
 	}
+	return ctx
 }
 
 type ConsumerContext struct {
@@ -131,6 +128,19 @@ type ConsumerContext struct {
 	WatchedTid     string
 	WpCreWatchers  []func(wp Waypoint) bool
 	WpMoveWatchers []func(id string, x, y float64) bool
+}
+
+func (ctx *ConsumerContext) ReceiveBSON(nBytes int, obj interface{}) interface{} {
+	buf := make([]byte, nBytes)
+	bc := make(chan []byte, 1)
+	bc <- buf
+	close(bc)
+	ctx.Ho().CoRecvData(bc)
+	err := bson.Unmarshal(buf, &obj)
+	if err != nil {
+		panic(errors.RichError(err))
+	}
+	return obj
 }
 
 // this is not a hosting method, but intended to be used by the service consumer,

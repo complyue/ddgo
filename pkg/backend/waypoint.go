@@ -6,6 +6,7 @@ import (
 	"github.com/complyue/ddgo/pkg/routes"
 	"github.com/complyue/ddgo/pkg/svcs"
 	"github.com/complyue/hbigo/pkg/errors"
+	"github.com/globalsign/mgo/bson"
 	"github.com/golang/glog"
 	"github.com/kataras/iris"
 	"github.com/kataras/iris/websocket"
@@ -41,7 +42,9 @@ func showWaypoints() (ws *websocket.Server) {
 
 		func() { // WatchWaypoints() will call Notif(), will deadlock if called before co.Close()
 			co, err := svc.Posting.Co()
-			panic(err)
+			if err != nil {
+				panic(err)
+			}
 			defer co.Close()
 			err = co.SendCode(fmt.Sprintf(`
 ListWaypoints(%#v)
@@ -53,19 +56,17 @@ ListWaypoints(%#v)
 			if err != nil {
 				panic(err)
 			}
-			switch result.(type) {
-			case error:
-				panic(result)
-			case []map[string]interface{}:
-				jsonBuf, err := json.Marshal(map[string]interface{}{
-					"type": "initial",
-					"wps":  result,
-				})
-				if err != nil {
-					panic(err)
-				}
-				c.EmitMessage(jsonBuf)
+			if e, ok := result.(error); ok {
+				panic(e)
 			}
+			jsonBuf, err := json.Marshal(map[string]interface{}{
+				"type": "initial",
+				"wps":  result.(bson.M)["wps"],
+			})
+			if err != nil {
+				panic(err)
+			}
+			c.EmitMessage(jsonBuf)
 		}()
 
 		svc.HoCtx().(*routes.ConsumerContext).WatchWaypoints(tid, func(wp routes.Waypoint) (stop bool) {
