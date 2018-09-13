@@ -25,6 +25,7 @@
             let result = JSON.parse(me.data);
             if ('err' === result.type) {
                 console.error('WP watching error:', result);
+                debugger;
                 alert('Waypoint watching error: ' + result.msg);
                 // reconnect in 10 seconds
                 setTimeout(() => {
@@ -83,7 +84,9 @@
         };
     })();
 
-    (function showTrucksLive() {
+    (function showTrucksLive(skip) {
+        if (skip) return;
+
         let ws = window.truckWatcher;
         if (ws) {
             if (WebSocket.CONNECTING === ws.readyState || WebSocket.OPEN === ws.readyState) {
@@ -105,6 +108,7 @@
             let result = JSON.parse(me.data);
             if ('err' === result.type) {
                 console.error('Truck watching error:', result);
+                debugger;
                 alert('Truck watching error: ' + result.msg);
                 // reconnect in 10 seconds
                 setTimeout(() => {
@@ -167,7 +171,7 @@
                 showTrucksLive();
             }, 10000);
         };
-    })();
+    })(true);
 
     let draggedObj = null;
 
