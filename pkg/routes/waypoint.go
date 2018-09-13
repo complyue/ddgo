@@ -114,7 +114,7 @@ func WatchWaypoints(
 					}
 					nextTail = knownTail.next
 				}
-				wpCreated.L.Lock()
+				wpMoved.L.Lock()
 				wpMoved.Wait()
 				wpMoved.L.Unlock()
 			}
@@ -142,10 +142,18 @@ var (
 	wpCreTail *wpCre
 	wpMvTail  *wpMv
 	// conditions to hold watchers when no event happens
-	wpCreated, wpMoved sync.Cond
+	wpCreated, wpMoved *sync.Cond
 )
 
-func MoveWayPoint(tid string, id string, x, y float64) (err error) {
+func init() {
+	var (
+		wpCreatedLock, wpMovedLock sync.Mutex
+	)
+	wpCreated = sync.NewCond(&wpCreatedLock)
+	wpMoved = sync.NewCond(&wpMovedLock)
+}
+
+func MoveWaypoint(tid string, id string, x, y float64) (err error) {
 	err = coll().Update(bson.M{"tid": tid, "id": id}, bson.M{"x": x, "y": y})
 	if err != nil {
 		return
@@ -162,7 +170,7 @@ func MoveWayPoint(tid string, id string, x, y float64) (err error) {
 	return
 }
 
-func AddWayPoint(tid string, x, y float64) (err error) {
+func AddWaypoint(tid string, x, y float64) (err error) {
 	newSeq := NextWpSeq(tid)
 	wp := Waypoint{
 		"_id": bson.NewObjectId(),

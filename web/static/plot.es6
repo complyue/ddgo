@@ -1,6 +1,6 @@
 (() => {
     const showArea = $('#show_area'),
-        waypointTmpl = $('#tmpl .WayPoint'), truckTmpl = $('#tmpl .Truck');
+        waypointTmpl = $('#tmpl .Waypoint'), truckTmpl = $('#tmpl .Truck');
     let wpById = {}, truckById = {};
 
     (function showWaypointsLive() {
@@ -34,7 +34,7 @@
                 }, 10000);
             } else if ('initial' === result.type) {
 
-                showArea.find('.WayPoint').remove();
+                showArea.find('.Waypoint').remove();
                 wpById = {};
                 for (let {_id, seq, label, x, y} of result.wps) {
                     let wp = waypointTmpl.clone();
@@ -175,10 +175,10 @@
 
     let draggedObj = null;
 
-    $('body').mousedown('.Truck, .WayPoint', async function (me) {
+    $('body').mousedown('.Truck, .Waypoint', async function (me) {
         let clicked = $(me.target).closest('.Truck');
         if (!clicked.length) {
-            clicked = $(me.target).closest('.WayPoint');
+            clicked = $(me.target).closest('.Waypoint');
         }
         if (!clicked.length) {
             draggedObj = null;
@@ -207,7 +207,7 @@
                     throw new Error(result.err);
                 }
 
-            } else if (clicked.hasClass('WayPoint')) {
+            } else if (clicked.hasClass('Waypoint')) {
                 // todo toggle wp stop
             }
 
@@ -258,7 +258,7 @@
 
         // call backend for movement of wp/truck
         try {
-            if (draggedObj.hasClass('WayPoint')) {
+            if (draggedObj.hasClass('Waypoint')) {
                 // call backend api of routes domain to actually move the waypoint dragged
 
                 let wp = draggedObj;

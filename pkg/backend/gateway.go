@@ -1,20 +1,24 @@
 package backend
 
 import (
-	"github.com/kataras/iris"
+	"github.com/gorilla/mux"
 )
 
-func DefineHttpRoutes(app *iris.Application) {
+func DefineHttpRoutes(router *mux.Router) {
 
-	app.Get("/api/{tid:string}/waypoint", showWaypoints().Handler())
-	app.Post("/api/{tid:string}/waypoint/add", addWaypoint)
-	app.Post("/api/{tid:string}/waypoint/move", moveWaypoint)
+	router.HandleFunc("/api/{tid}/waypoint", showWaypoints)
+	router.HandleFunc("/api/{tid}/waypoint/add", addWaypoint)
+	router.HandleFunc("/api/{tid}/waypoint/move", moveWaypoint)
 
 	/*
-		router.add_get('/api/{tid}/truck', show_trucks)
-		router.add_post('/api/{tid}/truck/add', add_truck)
-		router.add_post('/api/{tid}/truck/move', move_truck)
-		router.add_post('/api/{tid}/truck/stop', stop_truck)
+		app.Get("/api/{tid:string}/waypoint", showWaypoints().Handler())
+		app.Post("/api/{tid:string}/waypoint/add", addWaypoint)
+		app.Post("/api/{tid:string}/waypoint/move", moveWaypoint)
+
+			router.add_get('/api/{tid}/truck', show_trucks)
+			router.add_post('/api/{tid}/truck/add', add_truck)
+			router.add_post('/api/{tid}/truck/move', move_truck)
+			router.add_post('/api/{tid}/truck/stop', stop_truck)
 	*/
 
 }

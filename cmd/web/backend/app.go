@@ -1,20 +1,61 @@
 package main
 
-import "github.com/kataras/iris"
+import (
+	"fmt"
+	"github.com/complyue/hbigo/pkg/errors"
+	"github.com/flosch/pongo2"
+	"github.com/golang/glog"
+	"github.com/gorilla/mux"
+	"net/http"
+)
 
-func indexPage(ctx iris.Context) {
-	ctx.ViewData("Title", "Despatch & Delivery")
-	ctx.View("index.html")
+type Pongo2Page struct {
+	TmplFile string
+	Ctx      pongo2.Context
+	tmpl     *pongo2.Template
 }
 
-func plotPage(ctx iris.Context) {
-	ctx.ViewData("Title", "plot - Despatch & Delivery")
-	tid := ctx.Params().GetTrim("tid")
-	ctx.ViewData("tid", tid)
-	ctx.View("plot.html")
+func (page *Pongo2Page) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var err error
+	defer func() {
+		if e := recover(); e != nil {
+			err = errors.RichError(e)
+		}
+		if err != nil {
+			glog.Error(err)
+			http.Error(w, fmt.Sprintf("%+v", err), http.StatusInternalServerError)
+		}
+	}()
+	if page.tmpl == nil {
+		page.tmpl = pongo2.Must(pongo2.FromFile(page.TmplFile))
+	}
+	ctx := make(pongo2.Context)
+	for k, v := range page.Ctx {
+		ctx[k] = v
+	}
+	for k, v := range mux.Vars(r) {
+		ctx[k] = v
+	}
+	err = page.tmpl.ExecuteWriter(ctx, w)
+	if err != nil {
+		return
+	}
 }
 
-func definePageRoutes(app *iris.Application) {
-	app.Get("/", indexPage)
-	app.Get("/{tid:string}/plot", plotPage)
+func definePageRoutes(router *mux.Router) {
+
+	router.Handle("/", &Pongo2Page{
+		TmplFile: "web/templates/index.html",
+		Ctx: pongo2.Context{
+			"title": "Despatch & Delivery",
+		},
+	})
+
+	router.Handle("/{tid}/plot", &Pongo2Page{
+		TmplFile: "web/templates/plot.html",
+		Ctx: pongo2.Context{
+			"title": "plot - Despatch & Delivery",
+		},
+	})
+
 }

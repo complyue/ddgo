@@ -29,7 +29,7 @@ NewError(%#v)
 `, err.Error()))
 		return
 	}
-	buf, err := bson.Marshal(map[string]interface{}{
+	buf, err := bson.Marshal(bson.M{
 		"wps": wps,
 	})
 	if err != nil {
@@ -45,7 +45,7 @@ NewError(%#v)
 	bc <- buf
 	close(bc)
 	err = p2p.CoSendCode(fmt.Sprintf(`
-ReceiveBSON(%v,[]map[string]interface{}{})
+ReceiveBSON(%v)
 `, len(buf)))
 	if err != nil {
 		ctx.Cancel(errors.RichError(err))
@@ -104,14 +104,14 @@ WpMoved(%#v,%#v,%#v,%#v)
 }
 
 // expose as a service method in notif style
-func (ctx *ServiceContext) MoveWayPoint(tid string, id string, x, y float64) (err error) {
-	err = MoveWayPoint(tid, id, x, y)
+func (ctx *ServiceContext) MoveWaypoint(tid string, id string, x, y float64) (err error) {
+	err = MoveWaypoint(tid, id, x, y)
 	return
 }
 
 // expose as a service method in notif style
-func (ctx *ServiceContext) AddWayPoint(tid string, x, y float64) (err error) {
-	err = AddWayPoint(tid, x, y)
+func (ctx *ServiceContext) AddWaypoint(tid string, x, y float64) (err error) {
+	err = AddWaypoint(tid, x, y)
 	return
 }
 
@@ -130,17 +130,19 @@ type ConsumerContext struct {
 	WpMoveWatchers []func(id string, x, y float64) bool
 }
 
-func (ctx *ConsumerContext) ReceiveBSON(nBytes int, obj interface{}) interface{} {
+func (ctx *ConsumerContext) ReceiveBSON(nBytes int) (m map[string]interface{}) {
 	buf := make([]byte, nBytes)
 	bc := make(chan []byte, 1)
 	bc <- buf
 	close(bc)
 	ctx.Ho().CoRecvData(bc)
-	err := bson.Unmarshal(buf, &obj)
+
+	//var m bson.M
+	err := bson.Unmarshal(buf, &m)
 	if err != nil {
 		panic(errors.RichError(err))
 	}
-	return obj
+	return
 }
 
 // this is not a hosting method, but intended to be used by the service consumer,
@@ -154,6 +156,7 @@ func (ctx *ConsumerContext) WatchWaypoints(
 		ctx.PoToPeer().Notif(fmt.Sprintf(`
 WatchWaypoints(%#v)
 `, tid))
+		ctx.WatchedTid = tid
 	} else if tid != ctx.WatchedTid {
 		panic(errors.New(fmt.Sprintf("request to watch tid=%s while already watched %s ?!", tid, ctx.WatchedTid)))
 	}
@@ -169,7 +172,7 @@ WatchWaypoints(%#v)
 // a hosting method to relay wp creation notifications
 func (ctx *ConsumerContext) WpCreatedB(tid string, bufLen int) {
 	if tid != ctx.WatchedTid {
-		glog.Errorf("Got WpCreatedB for tid=%s while watched %s ?!", tid, ctx.WatchedTid)
+		glog.Errorf("Got WpCreatedB for tid=%s while watching %s ?!", tid, ctx.WatchedTid)
 		return
 	}
 	buf := make([]byte, bufLen)
