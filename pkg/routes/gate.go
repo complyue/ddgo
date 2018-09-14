@@ -29,32 +29,10 @@ NewError(%#v)
 `, err.Error()))
 		return
 	}
-	buf, err := bson.Marshal(bson.M{
+	if err = p2p.CoSendBSON(bson.M{
 		"wps": wps,
-	})
-	if err != nil {
-		glog.Error(errors.RichError(err))
-		p2p.CoSendCode(fmt.Sprintf(`
-NewError(%#v)
-`, err.Error()))
-		return
-	}
-
-	// convey wps data by a binary stream
-	bc := make(chan []byte, 1)
-	bc <- buf
-	close(bc)
-	err = p2p.CoSendCode(fmt.Sprintf(`
-ReceiveBSON(%v)
-`, len(buf)))
-	if err != nil {
-		ctx.Cancel(errors.RichError(err))
-		return
-	}
-	err = p2p.CoSendData(bc)
-	if err != nil {
-		ctx.Cancel(errors.RichError(err))
-		return
+	}); err != nil {
+		panic(errors.RichError(err))
 	}
 }
 
@@ -139,21 +117,6 @@ type ConsumerContext struct {
 	WatchedTid     string
 	WpCreWatchers  []func(wp Waypoint) bool
 	WpMoveWatchers []func(id string, x, y float64) bool
-}
-
-func (ctx *ConsumerContext) ReceiveBSON(nBytes int) (m map[string]interface{}) {
-	buf := make([]byte, nBytes)
-	bc := make(chan []byte, 1)
-	bc <- buf
-	close(bc)
-	ctx.Ho().CoRecvData(bc)
-
-	//var m bson.M
-	err := bson.Unmarshal(buf, &m)
-	if err != nil {
-		panic(errors.RichError(err))
-	}
-	return
 }
 
 // this is not a hosting method, but intended to be used by the service consumer,

@@ -48,27 +48,26 @@ func showWaypoints(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 
-	func() { // WatchWaypoints() will call Notif(), will deadlock if called before co.Close()
-		co, err := svc.Posting.Co()
-		if err != nil {
-			panic(err)
+	func() { // WatchWaypoints() may call Notif(), will deadlock if called before co.Close()
+		co, e := svc.Posting.Co()
+		if e != nil {
+			panic(errors.RichError(e))
 		}
 		defer co.Close()
-		result, err := co.Get(fmt.Sprintf(`
+		result, e := co.Get(fmt.Sprintf(`
 ListWaypoints(%#v)
 `, tid))
-		if err != nil {
-			panic(err)
+		if e != nil {
+			panic(errors.RichError(e))
 		}
 		if e, ok := result.(error); ok {
-			panic(e)
+			panic(errors.RichError(e))
 		}
 		if e := wsc.WriteJSON(map[string]interface{}{
 			"type": "initial",
 			"wps":  result.(map[string]interface{})["wps"],
 		}); e != nil {
-			glog.Error(e)
-			return
+			panic(errors.RichError(e))
 		}
 	}()
 

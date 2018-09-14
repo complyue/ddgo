@@ -157,7 +157,7 @@ func MoveWaypoint(tid string, id string, x, y float64) (err error) {
 	if err = coll().Update(bson.M{
 		"tid": tid, "_id": bson.ObjectIdHex(id),
 	}, bson.M{
-		"x": x, "y": y,
+		"$set": bson.M{"x": x, "y": y},
 	}); err != nil {
 		return
 	}
