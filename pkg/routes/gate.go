@@ -51,7 +51,7 @@ ReceiveBSON(%v)
 		ctx.Cancel(errors.RichError(err))
 		return
 	}
-	p2p.CoSendData(bc)
+	err = p2p.CoSendData(bc)
 	if err != nil {
 		ctx.Cancel(errors.RichError(err))
 		return
@@ -71,6 +71,8 @@ func (ctx *ServiceContext) WatchWaypoints(tid string) {
 		if p2p.Cancelled() {
 			return true
 		}
+		_id := wp["_id"]
+		wp["_id"] = fmt.Sprintf("%s", _id)
 		buf, err := bson.Marshal(wp)
 		if err != nil {
 			glog.Error(errors.RichError(err))
@@ -95,23 +97,32 @@ WpCreatedB(%#v,%#v)
 		if p2p.Cancelled() {
 			return true
 		}
-		p2p.Notif(fmt.Sprintf(`
+		if err := p2p.Notif(fmt.Sprintf(`
 WpMoved(%#v,%#v,%#v,%#v)
-`, tid, id, x, y))
-
+`, tid, id, x, y)); err != nil {
+			return true
+		}
 		return
 	})
 }
 
 // expose as a service method in notif style
 func (ctx *ServiceContext) MoveWaypoint(tid string, id string, x, y float64) (err error) {
-	err = MoveWaypoint(tid, id, x, y)
+	if err = MoveWaypoint(tid, id, x, y); err != nil {
+		glog.Error(errors.RichError(err))
+		// todo async notify api gateway
+		return
+	}
 	return
 }
 
 // expose as a service method in notif style
 func (ctx *ServiceContext) AddWaypoint(tid string, x, y float64) (err error) {
-	err = AddWaypoint(tid, x, y)
+	if err = AddWaypoint(tid, x, y); err != nil {
+		glog.Error(errors.RichError(err))
+		// todo async notify api gateway
+		return
+	}
 	return
 }
 

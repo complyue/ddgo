@@ -54,12 +54,9 @@ func showWaypoints(w http.ResponseWriter, r *http.Request) {
 			panic(err)
 		}
 		defer co.Close()
-		if err = co.SendCode(fmt.Sprintf(`
+		result, err := co.Get(fmt.Sprintf(`
 ListWaypoints(%#v)
-`, tid)); err != nil {
-			panic(err)
-		}
-		result, err := co.RecvObj()
+`, tid))
 		if err != nil {
 			panic(err)
 		}
@@ -170,12 +167,11 @@ func moveWaypoint(w http.ResponseWriter, r *http.Request) {
 	tid := params["tid"]
 
 	var reqData struct {
-		WpId string
+		WpId string `json:"wp_id"`
 		X, Y float64
 	}
 	decoder := json.NewDecoder(r.Body)
-	err = decoder.Decode(&reqData)
-	if err != nil {
+	if err = decoder.Decode(&reqData); err != nil {
 		return
 	}
 
@@ -190,10 +186,9 @@ func moveWaypoint(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// use async notification to cease round trips
-	err = routesSvc.Posting.Notif(fmt.Sprintf(`
+	if err = routesSvc.Posting.Notif(fmt.Sprintf(`
 MoveWaypoint(%#v,%#v,%#v,%#v)
-`, tid, reqData.WpId, reqData.X, reqData.Y))
-	if err != nil {
+`, tid, reqData.WpId, reqData.X, reqData.Y)); err != nil {
 		return
 	}
 }
