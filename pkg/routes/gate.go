@@ -49,8 +49,8 @@ func (ctx *ServiceContext) WatchWaypoints(tid string) {
 		if p2p.Cancelled() {
 			return true
 		}
-		_id := wp["_id"]
-		wp["_id"] = fmt.Sprintf("%s", _id)
+		_id := wp["_id"].(bson.ObjectId).Hex()
+		wp["_id"] = _id // convert oid to hex str for frontend
 		buf, err := bson.Marshal(wp)
 		if err != nil {
 			glog.Error(errors.RichError(err))
