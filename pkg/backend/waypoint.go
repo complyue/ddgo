@@ -56,7 +56,7 @@ func showWaypoints(w http.ResponseWriter, r *http.Request) {
 		defer co.Close()
 		result, e := co.Get(fmt.Sprintf(`
 ListWaypoints(%#v)
-`, tid))
+`, tid), "")
 		if e != nil {
 			panic(errors.RichError(e))
 		}

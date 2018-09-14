@@ -18,25 +18,19 @@ type ServiceContext struct {
 	hbi.HoContext
 }
 
-// expose as a service method in rpc style
-func (ctx *ServiceContext) ListWaypoints(tid string) {
-	p2p := ctx.PoToPeer()
+// expose this service method in rpc style, converting err-out to panic,
+// and wrap the object slice into bson map for binary serialization
+func (ctx *ServiceContext) ListWaypoints(tid string) bson.M {
 	wps, err := ListWaypoints(tid)
 	if err != nil {
-		glog.Error(errors.RichError(err))
-		p2p.CoSendCode(fmt.Sprintf(`
-NewError(%#v)
-`, err.Error()))
-		return
+		panic(err)
 	}
-	if err = p2p.CoSendBSON(bson.M{
+	return bson.M{
 		"wps": wps,
-	}); err != nil {
-		panic(errors.RichError(err))
 	}
 }
 
-// implement sub func as a service method
+// implement sub as a service method
 func (ctx *ServiceContext) WatchWaypoints(tid string) {
 	WatchWaypoints(tid, func(wp Waypoint) (stop bool) {
 		defer func() {
@@ -84,21 +78,22 @@ WpMoved(%#v,%#v,%#v,%#v)
 	})
 }
 
-// expose as a service method in notif style
-func (ctx *ServiceContext) MoveWaypoint(tid string, id string, x, y float64) (err error) {
-	if err = MoveWaypoint(tid, id, x, y); err != nil {
-		glog.Error(errors.RichError(err))
-		// todo async notify api gateway
+// expose as a service method in async style
+func (ctx *ServiceContext) MoveWaypoint(
+	tid string, id string, x, y float64,
+) {
+	if err := MoveWaypoint(tid, id, x, y); err != nil {
+		// todo send failure to api gateway in async way
+		panic(err)
 		return
 	}
-	return
 }
 
-// expose as a service method in notif style
-func (ctx *ServiceContext) AddWaypoint(tid string, x, y float64) (err error) {
-	if err = AddWaypoint(tid, x, y); err != nil {
-		glog.Error(errors.RichError(err))
+// expose as a service method in async style
+func (ctx *ServiceContext) AddWaypoint(tid string, x, y float64) {
+	if err := AddWaypoint(tid, x, y); err != nil {
 		// todo async notify api gateway
+		panic(err)
 		return
 	}
 	return
@@ -119,8 +114,8 @@ type ConsumerContext struct {
 	WpMoveWatchers []func(id string, x, y float64) bool
 }
 
-// this is not a hosting method, but intended to be used by the service consumer,
-// to register watchers subscribing the relevant domain events.
+// this intends to be called by the service consumer from consumer endpoint,
+// to register watchers subscribing to relevant domain events.
 func (ctx *ConsumerContext) WatchWaypoints(
 	tid string,
 	ackCre func(wp Waypoint) bool,
@@ -134,7 +129,7 @@ WatchWaypoints(%#v)
 	} else if tid != ctx.WatchedTid {
 		panic(errors.New(fmt.Sprintf("request to watch tid=%s while already watched %s ?!", tid, ctx.WatchedTid)))
 	}
-	// todo besides append, can linear search a nil slot to put in
+	// todo before append, can linear search for a nil slot to put in
 	if ackCre != nil {
 		ctx.WpCreWatchers = append(ctx.WpCreWatchers, ackCre)
 	}
