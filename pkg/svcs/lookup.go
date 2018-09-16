@@ -13,13 +13,14 @@ import (
 )
 
 type ServiceConfig struct {
-	Url      string
-	Host     string
-	Port     int
-	Parallel int
-	Size     int
-	Hot      int
-	Timeout  string
+	Http, Https string
+	Url         string
+	Host        string
+	Port        int
+	Parallel    int
+	Size        int
+	Hot         int
+	Timeout     string
 }
 
 func (cfg ServiceConfig) Addr() string {
@@ -54,38 +55,54 @@ func GetServiceConfig(serviceKey string) (cfg ServiceConfig, err error) {
 	return
 }
 
-func GetRoutesService(tunnel string, session string) (svcConn *hbi.TCPConn, err error) {
-	svcConn, err = getService("routes", routes.NewConsumerContext, tunnel, session)
-	return
+/*
+	use tid as session for tenant isolation,
+	and tunnel can further be specified to isolate per tenant or per other means
+*/
+func GetRoutesService(tunnel string, session string) (*routes.ConsumerAPI, error) {
+	if svc, err := getService("routes", func() hbi.HoContext {
+		api := routes.NewConsumerAPI()
+		ctx := api.GetHoCtx()
+		ctx.Put("api", api)
+		return ctx
+	}, tunnel, session); err != nil {
+		return nil, err
+	} else {
+		return svc.Hosting.HoCtx().Get("api").(*routes.ConsumerAPI), nil
+	}
 }
-
-var svcPools = make(map[string]*svcpool.Consumer)
-var svcMu sync.Mutex
 
 func getService(
 	serviceKey string, ctxFact func() hbi.HoContext,
 	tunnel string, session string,
 ) (svcConn *hbi.TCPConn, err error) {
-	svcMu.Lock()
-	defer svcMu.Unlock()
-
-	var ok bool
-
-	var consumer *svcpool.Consumer
-	consumer, ok = svcPools[serviceKey]
-	if !ok {
-		var cfg ServiceConfig
-		cfg, err = GetServiceConfig(serviceKey)
-		if err != nil {
-			return
-		}
-		consumer, err = svcpool.NewConsumer(cfg.Addr(), nil)
-		if err != nil {
-			return
-		}
-		svcPools[serviceKey] = consumer
+	consumer, err := getServicePool(serviceKey)
+	if err != nil {
+		return nil, err
 	}
-
 	svcConn, err = consumer.GetService(ctxFact, tunnel, session, true)
 	return
+}
+
+var svcPools = make(map[string]*svcpool.Consumer)
+var muPools sync.Mutex
+
+func getServicePool(serviceKey string) (*svcpool.Consumer, error) {
+	muPools.Lock()
+	defer muPools.Unlock()
+
+	if consumer, ok := svcPools[serviceKey]; ok {
+		return consumer, nil
+	}
+
+	cfg, err := GetServiceConfig(serviceKey)
+	if err != nil {
+		return nil, err
+	}
+	consumer, err := svcpool.NewConsumer(cfg.Addr(), nil)
+	if err != nil {
+		return nil, err
+	}
+	svcPools[serviceKey] = consumer
+	return consumer, nil
 }

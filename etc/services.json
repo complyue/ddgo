@@ -1,4 +1,8 @@
 {
+  "web": {
+    "http": "localhost:7070",
+    "https": null
+  },
   "db": {
     "url": "mongodb://127.0.0.1:27017"
   },

@@ -3,10 +3,12 @@ package main
 import (
 	"flag"
 	"github.com/complyue/ddgo/pkg/backend"
+	"github.com/complyue/ddgo/pkg/svcs"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"log"
+	"net"
 	"net/http"
 	"time"
 )
@@ -36,6 +38,11 @@ func main() {
 
 	flag.Parse()
 
+	webCfg, err := svcs.GetServiceConfig("web")
+	if err != nil {
+		return
+	}
+
 	router := mux.NewRouter()
 
 	backend.DefineHttpRoutes(router)
@@ -48,10 +55,36 @@ func main() {
 
 	srv := &http.Server{
 		Handler:      router,
-		Addr:         ":7070",
+		Addr:         webCfg.Http,
 		WriteTimeout: 30 * time.Second,
 		ReadTimeout:  30 * time.Second,
 	}
 
-	err = srv.ListenAndServe()
+	addr := srv.Addr
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return
+	}
+	glog.Infof("DDGo web serving at http://%s ...\n", ln.Addr())
+	err = srv.Serve(tcpKeepAliveListener{ln.(*net.TCPListener)})
+}
+
+// following copied from std lib as unexported
+
+// tcpKeepAliveListener sets TCP keep-alive timeouts on accepted
+// connections. It's used by ListenAndServe and ListenAndServeTLS so
+// dead TCP connections (e.g. closing laptop mid-download) eventually
+// go away.
+type tcpKeepAliveListener struct {
+	*net.TCPListener
+}
+
+func (ln tcpKeepAliveListener) Accept() (net.Conn, error) {
+	tc, err := ln.AcceptTCP()
+	if err != nil {
+		return nil, err
+	}
+	tc.SetKeepAlive(true)
+	tc.SetKeepAlivePeriod(3 * time.Minute)
+	return tc, nil
 }

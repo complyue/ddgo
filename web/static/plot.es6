@@ -38,7 +38,7 @@
                 wpById = {};
                 for (let {_id, seq, label, x, y} of result.wps) {
                     let wp = waypointTmpl.clone();
-                    wp.data({'wp_id': _id, 'seq': seq});
+                    wp.data({'_id': _id, 'seq': seq});
                     wp.find('.Label').text(label);
                     wp.appendTo(showArea);
                     wp.css({left: x, top: y});
@@ -50,7 +50,7 @@
                 let {_id, seq, label, x, y} = result.wp;
 
                 let wp = waypointTmpl.clone();
-                wp.data({'wp_id': _id, 'seq': seq});
+                wp.data({'_id': _id, 'seq': seq});
                 wp.find('.Label').text(label);
                 wp.appendTo(showArea);
                 wp.css({left: x, top: y});
@@ -58,9 +58,9 @@
 
             } else if ('moved' === result.type) {
 
-                let {wp_id, x, y} = result;
+                let {tid, seq, _id, x, y} = result;
                 // show the movement use a straight line path.
-                let wp = wpById[wp_id];
+                let wp = wpById[_id];
                 wp.animate({left: x, top: y});
 
             } else {
@@ -265,7 +265,7 @@
                 let result = await $.ajax({
                     dataType: 'json', method: 'post', url: '/api/' + window.tid + '/waypoint/move',
                     contentType: "application/json", data: JSON.stringify({
-                        wp_id: wp.data('wp_id'), x: newX, y: newY,
+                        seq: wp.data('seq'), _id: wp.data('_id'), x: newX, y: newY,
                     }),
                 });
                 if (result.err) {

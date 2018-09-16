@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/complyue/ddgo/pkg/routes"
-	"github.com/complyue/ddgo/pkg/svcs"
-	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
@@ -43,36 +41,23 @@ func showWaypoints(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	tid := params["tid"]
 
-	svc, err := svcs.GetRoutesService("", tid)
+	routesApi, err := GetRoutesService("", tid)
 	if err != nil {
 		panic(err)
 	}
 
-	func() { // WatchWaypoints() may call Notif(), will deadlock if called before co.Close()
-		co, e := svc.Posting.Co()
-		if e != nil {
-			panic(errors.RichError(e))
-		}
-		defer co.Close()
-		result, e := co.Get(fmt.Sprintf(`
-ListWaypoints(%#v)
-`, tid), "")
-		if e != nil {
-			panic(errors.RichError(e))
-		}
-		if e, ok := result.(error); ok {
-			panic(errors.RichError(e))
-		}
-		if e := wsc.WriteJSON(map[string]interface{}{
-			"type": "initial",
-			"wps":  result.(map[string]interface{})["wps"],
-		}); e != nil {
-			panic(errors.RichError(e))
-		}
-	}()
+	wpl, err := routesApi.ListWaypoints(tid)
+	if err != nil {
+		panic(err)
+	}
+	if e := wsc.WriteJSON(map[string]interface{}{
+		"type": "initial",
+		"wps":  wpl.Waypoints,
+	}); e != nil {
+		panic(errors.RichError(e))
+	}
 
-	svc.HoCtx().(*routes.ConsumerContext).WatchWaypoints(tid, func(wp routes.Waypoint) (stop bool) {
-		wp["_id"] = fmt.Sprintf("%s", wp["_id"]) // convert bson objId to str
+	routesApi.WatchWaypoints(tid, func(wp *routes.Waypoint) (stop bool) {
 		if e := wsc.WriteJSON(map[string]interface{}{
 			"type": "created",
 			"wp":   wp,
@@ -81,10 +66,10 @@ ListWaypoints(%#v)
 			return true
 		}
 		return false
-	}, func(id string, x, y float64) (stop bool) {
+	}, func(tid string, seq int, id string, x, y float64) (stop bool) {
 		if e := wsc.WriteJSON(map[string]interface{}{
-			"type":  "moved",
-			"wp_id": id, "x": x, "y": y,
+			"type": "moved",
+			"tid":  tid, "seq": seq, "_id": id, "x": x, "y": y,
 		}); e != nil {
 			glog.Error(e)
 			return true
@@ -124,20 +109,12 @@ func addWaypoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	/*
-		use tid as session for tenant isolation,
-		and tunnel can further be specified to isolate per tenant or per other means
-	*/
-	var routesSvc *hbi.TCPConn
-	routesSvc, err = svcs.GetRoutesService("", tid)
+	routesApi, err := GetRoutesService("", tid)
 	if err != nil {
-		return
+		panic(err)
 	}
 
-	// use async notification to cease round trips
-	err = routesSvc.Posting.Notif(fmt.Sprintf(`
-AddWaypoint(%#v,%#v,%#v)
-`, tid, reqData.X, reqData.Y))
+	err = routesApi.AddWaypoint(tid, reqData.X, reqData.Y)
 	if err != nil {
 		return
 	}
@@ -166,7 +143,8 @@ func moveWaypoint(w http.ResponseWriter, r *http.Request) {
 	tid := params["tid"]
 
 	var reqData struct {
-		WpId string `json:"wp_id"`
+		Seq  int
+		Id   string `json:"_id"`
 		X, Y float64
 	}
 	decoder := json.NewDecoder(r.Body)
@@ -174,20 +152,13 @@ func moveWaypoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	/*
-		use tid as session for tenant isolation,
-		and tunnel can further be specified to isolate per tenant or per other means
-	*/
-	var routesSvc *hbi.TCPConn
-	routesSvc, err = svcs.GetRoutesService("", tid)
+	routesApi, err := GetRoutesService("", tid)
 	if err != nil {
-		return
+		panic(err)
 	}
 
-	// use async notification to cease round trips
-	if err = routesSvc.Posting.Notif(fmt.Sprintf(`
-MoveWaypoint(%#v,%#v,%#v,%#v)
-`, tid, reqData.WpId, reqData.X, reqData.Y)); err != nil {
+	err = routesApi.MoveWaypoint(tid, reqData.Seq, reqData.Id, reqData.X, reqData.Y)
+	if err != nil {
 		return
 	}
 }
