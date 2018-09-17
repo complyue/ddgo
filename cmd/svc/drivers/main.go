@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/complyue/ddgo/pkg/routes"
+	"github.com/complyue/ddgo/pkg/drivers"
 	"github.com/complyue/ddgo/pkg/svcs"
 	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
@@ -47,7 +47,7 @@ func main() {
 	flag.Parse()
 
 	var poolConfig svcs.ServiceConfig
-	poolConfig, err = svcs.GetServiceConfig("routes")
+	poolConfig, err = svcs.GetServiceConfig("drivers")
 	if err != nil {
 		panic(err)
 	}
@@ -55,7 +55,7 @@ func main() {
 	if teamAddr == "#" {
 		// started without -team, assume pool master
 
-		glog.Infof("Starting routes service pool with config: %+v\n", poolConfig)
+		glog.Infof("Starting drivers service pool with config: %+v\n", poolConfig)
 		startProcessTimeout, err := time.ParseDuration(poolConfig.Timeout)
 		if err != nil {
 			return
@@ -71,13 +71,13 @@ func main() {
 		// apply parallelism config
 		runtime.GOMAXPROCS(poolConfig.Parallel)
 		glog.V(1).Infof(
-			"Routes service proc [pid=%d] parallelism set to %d by configured %d\n",
+			"Drivers service proc [pid=%d] parallelism set to %d by configured %d\n",
 			os.Getpid(), runtime.GOMAXPROCS(0), poolConfig.Parallel,
 		)
 
-		glog.Infof("Routes service proc [pid=%d,team=%s] starting ...", os.Getpid(), teamAddr)
-		hbi.ServeTCP(routes.NewServiceContext, fmt.Sprintf("%s:0", poolConfig.Host), func(listener *net.TCPListener) {
-			glog.Infof("Routes service proc [pid=%d,team=%s] listening %+v", os.Getpid(), teamAddr, listener.Addr())
+		glog.Infof("Drivers service proc [pid=%d,team=%s] starting ...", os.Getpid(), teamAddr)
+		hbi.ServeTCP(drivers.NewServiceContext, fmt.Sprintf("%s:0", poolConfig.Host), func(listener *net.TCPListener) {
+			glog.Infof("Drivers service proc [pid=%d,team=%s] listening %+v", os.Getpid(), teamAddr, listener.Addr())
 			procPort := listener.Addr().(*net.TCPAddr).Port
 
 			var m4w *hbi.TCPConn
@@ -86,7 +86,7 @@ func main() {
 			p2p.Notif(fmt.Sprintf(`
 WorkerOnline(%#v,%#v)
 `, os.Getpid(), procPort))
-			glog.Infof("Routes service proc [pid=%d,team=%s] reported to master.", os.Getpid(), teamAddr)
+			glog.Infof("Drivers service proc [pid=%d,team=%s] reported to master.", os.Getpid(), teamAddr)
 		})
 
 	}

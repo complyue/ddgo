@@ -3,7 +3,11 @@
         waypointTmpl = $('#tmpl .Waypoint'), truckTmpl = $('#tmpl .Truck');
     let wpById = {}, truckById = {};
 
-    (function showWaypointsLive() {
+    (function showWaypointsLive(skip) {
+        if (skip) {
+            return
+        }
+
         let ws = window.wpWatcher;
         if (ws) {
             if (WebSocket.CONNECTING === ws.readyState || WebSocket.OPEN === ws.readyState) {
@@ -36,6 +40,9 @@
 
                 showArea.find('.Waypoint').remove();
                 wpById = {};
+                if (!result.wps) {
+                    return
+                }
                 for (let {_id, seq, label, x, y} of result.wps) {
                     let wp = waypointTmpl.clone();
                     wp.data({'_id': _id, 'seq': seq});
@@ -82,7 +89,7 @@
                 showWaypointsLive();
             }, 10000);
         };
-    })();
+    })(false);
 
     (function showTrucksLive(skip) {
         if (skip) return;
@@ -119,9 +126,12 @@
 
                 showArea.find('.Truck').remove();
                 truckById = {};
+                if (!result.trucks) {
+                    return
+                }
                 for (let {_id, seq, label, x, y, moving} of result.trucks) {
                     let truck = truckTmpl.clone();
-                    truck.data({'truck_id': _id, 'seq': seq, 'moving': moving});
+                    truck.data({'_id': _id, 'seq': seq, 'moving': moving});
                     truck.find('.Label').text(label);
                     truck.appendTo(showArea);
                     truck.css({left: x, top: y});
@@ -133,7 +143,7 @@
                 let {_id, seq, label, x, y, moving} = result.truck;
 
                 let truck = truckTmpl.clone();
-                truck.data({'truck_id': _id, 'seq': seq, 'moving': moving});
+                truck.data({'_id': _id, 'seq': seq, 'moving': moving});
                 truck.find('.Label').text(label);
                 truck.appendTo(showArea);
                 truck.css({left: x, top: y});
@@ -141,15 +151,15 @@
 
             } else if ('moved' === result.type) {
 
-                let {truck_id, x, y} = result;
+                let {_id, x, y} = result;
                 // show the movement use a straight line path.
-                let truck = truckById[truck_id];
+                let truck = truckById[_id];
                 truck.animate({left: x, top: y});
 
             } else if ('stopped' === result.type) {
 
-                let {truck_id, moving} = result;
-                let truck = truckById[truck_id];
+                let {_id, moving} = result;
+                let truck = truckById[_id];
                 truck.data('moving', !!moving);
 
             } else {
@@ -171,7 +181,7 @@
                 showTrucksLive();
             }, 10000);
         };
-    })(true);
+    })(false);
 
     let draggedObj = null;
 
@@ -198,7 +208,7 @@
                 let result = await $.ajax({
                     dataType: 'json', method: 'post', url: '/api/' + window.tid + '/truck/stop',
                     contentType: "application/json", data: JSON.stringify({
-                        truck_id: truck.data('truck_id'), moving: !truck.data('moving'),
+                        seq: truck.data('seq'), _id: truck.data('_id'), moving: !truck.data('moving'),
                     }),
                 });
                 if (result.err) {
@@ -282,7 +292,7 @@
                 let result = await $.ajax({
                     dataType: 'json', method: 'post', url: '/api/' + window.tid + '/truck/move',
                     contentType: "application/json", data: JSON.stringify({
-                        truck_id: truck.data('truck_id'), x: newX, y: newY,
+                        seq: truck.data('seq'), _id: truck.data('_id'), x: newX, y: newY,
                     }),
                 });
                 if (result.err) {

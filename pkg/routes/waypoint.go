@@ -23,7 +23,7 @@ type WaypointList struct {
 	Waypoints []Waypoint
 
 	// this is the primary index to locate a waypoint by tid+seq
-	wpBySeq map[int]*Waypoint
+	bySeq map[int]*Waypoint
 }
 
 // a single waypoint
@@ -85,11 +85,11 @@ func ensureLoadedFor(tid string) error {
 	if optimalSize < 200 {
 		optimalSize = 200
 	}
-	loadingList.wpBySeq = make(map[int]*Waypoint, optimalSize)
+	loadingList.bySeq = make(map[int]*Waypoint, optimalSize)
 	for i := range loadingList.Waypoints {
 		wp := &loadingList.Waypoints[i] // must obtain the pointer this way,
 		// not from 2nd loop var, as that'll be a temporary local var
-		loadingList.wpBySeq[wp.Seq] = wp
+		loadingList.bySeq[wp.Seq] = wp
 	}
 	fullList = loadingList // only set globally after successfully loaded at all
 	return nil
@@ -231,7 +231,7 @@ func MoveWaypoint(tid string, seq int, id string, x, y float64) error {
 		return err
 	}
 
-	wp := fullList.wpBySeq[seq]
+	wp := fullList.bySeq[seq]
 	if wp == nil {
 		return errors.New(fmt.Sprintf("Waypoint seq=%d not exists for tid=%s", seq, tid))
 	}
@@ -299,7 +299,7 @@ func AddWaypoint(tid string, x, y float64) error {
 	insertPos := len(wpl)
 	wpl = append(wpl, newTail.wp.Waypoint)
 	fullList.Waypoints = wpl
-	fullList.wpBySeq[newTail.wp.Seq] = &wpl[insertPos]
+	fullList.bySeq[newTail.wp.Seq] = &wpl[insertPos]
 
 	// publish the create event
 	if wpCreTail != nil {
