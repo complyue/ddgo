@@ -101,6 +101,10 @@ WatchWaypoints(%#v)
 
 func (api *ConsumerAPI) AddWaypoint(tid string, x, y float64) error {
 	ctx := api.ctx
+	if ctx == nil {
+		return AddWaypoint(tid, x, y)
+	}
+
 	return ctx.PoToPeer().Notif(fmt.Sprintf(`
 AddWaypoint(%#v,%#v,%#v)
 `, tid, x, y))
@@ -110,6 +114,10 @@ func (api *ConsumerAPI) MoveWaypoint(
 	tid string, seq int, id string, x, y float64,
 ) error {
 	ctx := api.ctx
+	if ctx == nil {
+		return MoveWaypoint(tid, seq, id, x, y)
+	}
+
 	return ctx.PoToPeer().Notif(fmt.Sprintf(`
 MoveWaypoint(%#v,%#v,%#v,%#v,%#v)
 `, tid, seq, id, x, y))

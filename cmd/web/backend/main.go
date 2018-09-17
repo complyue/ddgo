@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"github.com/complyue/ddgo/pkg/backend"
+	"github.com/complyue/ddgo/pkg/routes"
 	"github.com/complyue/ddgo/pkg/svcs"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/golang/glog"
@@ -14,15 +15,18 @@ import (
 )
 
 func init() {
-	var err error
-
 	// change glog default destination to stderr
 	if glog.V(0) { // should always be true, mention glog so it defines its flags before we change them
-		if err = flag.CommandLine.Set("logtostderr", "true"); nil != err {
+		if err := flag.CommandLine.Set("logtostderr", "true"); nil != err {
 			log.Printf("Failed changing glog default desitination, err: %s", err)
 		}
 	}
+}
 
+var mono bool
+
+func init() {
+	flag.BoolVar(&mono, "mono", false, "Run in monolith mode.")
 }
 
 func main() {
@@ -37,6 +41,15 @@ func main() {
 	}()
 
 	flag.Parse()
+
+	if mono { // monolith mode, create embedded consumer api objects and monkey patch consuming packages
+
+		routesApi := routes.NewConsumerAPI()
+		backend.GetRoutesService = func(tunnel, session string) (*routes.ConsumerAPI, error) {
+			return routesApi, nil
+		}
+
+	}
 
 	webCfg, err := svcs.GetServiceConfig("web")
 	if err != nil {

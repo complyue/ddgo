@@ -116,7 +116,7 @@ func addWaypoint(w http.ResponseWriter, r *http.Request) {
 
 	err = routesApi.AddWaypoint(tid, reqData.X, reqData.Y)
 	if err != nil {
-		return
+		panic(err)
 	}
 }
 
@@ -149,7 +149,7 @@ func moveWaypoint(w http.ResponseWriter, r *http.Request) {
 	}
 	decoder := json.NewDecoder(r.Body)
 	if err = decoder.Decode(&reqData); err != nil {
-		return
+		panic(err)
 	}
 
 	routesApi, err := GetRoutesService("", tid)
@@ -159,6 +159,6 @@ func moveWaypoint(w http.ResponseWriter, r *http.Request) {
 
 	err = routesApi.MoveWaypoint(tid, reqData.Seq, reqData.Id, reqData.X, reqData.Y)
 	if err != nil {
-		return
+		panic(err)
 	}
 }
