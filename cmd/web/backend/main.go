@@ -49,6 +49,9 @@ func main() {
 		backend.GetRoutesService = func(tunnel, session string) (*routes.ConsumerAPI, error) {
 			return routesApi, nil
 		}
+		drivers.GetRoutesService = func(tunnel, session string) (*routes.ConsumerAPI, error) {
+			return routesApi, nil
+		}
 
 		driversApi := drivers.NewConsumerAPI()
 		backend.GetDriversService = func(tunnel, session string) (*drivers.ConsumerAPI, error) {
