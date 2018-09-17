@@ -3,8 +3,6 @@ package svcs
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/complyue/ddgo/pkg/drivers"
-	"github.com/complyue/ddgo/pkg/routes"
 	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/complyue/hbigo/pkg/svcpool"
@@ -56,41 +54,7 @@ func GetServiceConfig(serviceKey string) (cfg ServiceConfig, err error) {
 	return
 }
 
-/*
-	use tid as session for tenant isolation,
-	and tunnel can further be specified to isolate per tenant or per other means
-*/
-func GetRoutesService(tunnel string, session string) (*routes.ConsumerAPI, error) {
-	if svc, err := getService("routes", func() hbi.HoContext {
-		api := routes.NewConsumerAPI()
-		ctx := api.GetHoCtx()
-		ctx.Put("api", api)
-		return ctx
-	}, tunnel, session); err != nil {
-		return nil, err
-	} else {
-		return svc.Hosting.HoCtx().Get("api").(*routes.ConsumerAPI), nil
-	}
-}
-
-/*
-	use tid as session for tenant isolation,
-	and tunnel can further be specified to isolate per tenant or per other means
-*/
-func GetDriversService(tunnel string, session string) (*drivers.ConsumerAPI, error) {
-	if svc, err := getService("drivers", func() hbi.HoContext {
-		api := drivers.NewConsumerAPI()
-		ctx := api.GetHoCtx()
-		ctx.Put("api", api)
-		return ctx
-	}, tunnel, session); err != nil {
-		return nil, err
-	} else {
-		return svc.Hosting.HoCtx().Get("api").(*drivers.ConsumerAPI), nil
-	}
-}
-
-func getService(
+func GetService(
 	serviceKey string, ctxFact func() hbi.HoContext,
 	tunnel string, session string,
 ) (svcConn *hbi.TCPConn, err error) {

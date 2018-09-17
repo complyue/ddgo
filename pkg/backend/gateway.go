@@ -3,7 +3,6 @@ package backend
 import (
 	"github.com/complyue/ddgo/pkg/drivers"
 	"github.com/complyue/ddgo/pkg/routes"
-	"github.com/complyue/ddgo/pkg/svcs"
 	"github.com/gorilla/mux"
 )
 
@@ -13,7 +12,7 @@ var GetRoutesService = func(tunnel, session string) (*routes.ConsumerAPI, error)
 		use tid as session for tenant isolation,
 		and tunnel can further be specified to isolate per tenant or per other means
 	*/
-	return svcs.GetRoutesService(
+	return routes.GetRoutesService(
 		tunnel, session,
 	)
 }
@@ -24,7 +23,7 @@ var GetDriversService = func(tunnel, session string) (*drivers.ConsumerAPI, erro
 		use tid as session for tenant isolation,
 		and tunnel can further be specified to isolate per tenant or per other means
 	*/
-	return svcs.GetDriversService(
+	return drivers.GetDriversService(
 		tunnel, session,
 	)
 }

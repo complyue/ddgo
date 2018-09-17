@@ -2,10 +2,28 @@ package routes
 
 import (
 	"fmt"
+	"github.com/complyue/ddgo/pkg/svcs"
 	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/golang/glog"
 )
+
+/*
+	use tid as session for tenant isolation,
+	and tunnel can further be specified to isolate per tenant or per other means
+*/
+func GetRoutesService(tunnel string, session string) (*ConsumerAPI, error) {
+	if svc, err := svcs.GetService("routes", func() hbi.HoContext {
+		api := NewConsumerAPI()
+		ctx := api.GetHoCtx()
+		ctx.Put("api", api)
+		return ctx
+	}, tunnel, session); err != nil {
+		return nil, err
+	} else {
+		return svc.Hosting.HoCtx().Get("api").(*ConsumerAPI), nil
+	}
+}
 
 func NewConsumerAPI() *ConsumerAPI {
 	return &ConsumerAPI{}
