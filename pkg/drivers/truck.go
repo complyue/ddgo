@@ -184,8 +184,7 @@ func WatchTrucks(
 	if ackStop != nil {
 		go func() {
 			defer func() { // stop watching on watcher func panic, don't crash
-				err := recover()
-				if err != nil {
+				if err := recover(); err != nil {
 					glog.Error(errors.RichError(err))
 				}
 			}()
@@ -206,9 +205,9 @@ func WatchTrucks(
 					}
 					nextTail = knownTail.next
 				}
-				tkMoved.L.Lock()
-				tkMoved.Wait()
-				tkMoved.L.Unlock()
+				tkStopped.L.Lock()
+				tkStopped.Wait()
+				tkStopped.L.Unlock()
 			}
 		}()
 	}
@@ -266,11 +265,9 @@ var (
 )
 
 func init() {
-	var (
-		tkCreatedLock, tkMovedLock sync.Mutex
-	)
-	tkCreated = sync.NewCond(&tkCreatedLock)
-	tkMoved = sync.NewCond(&tkMovedLock)
+	tkCreated = sync.NewCond(new(sync.Mutex))
+	tkMoved = sync.NewCond(new(sync.Mutex))
+	tkStopped = sync.NewCond(new(sync.Mutex))
 }
 
 func AddTruck(tid string, x, y float64) error {

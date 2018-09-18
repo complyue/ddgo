@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"net/http"
+	"sync"
 )
 
 func showTrucks(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +58,11 @@ func showTrucks(w http.ResponseWriter, r *http.Request) {
 		panic(errors.RichError(e))
 	}
 
+	var muWsc sync.Mutex
+
 	driversApi.WatchTrucks(tid, func(tk *drivers.Truck) (stop bool) {
+		muWsc.Lock()
+		defer muWsc.Unlock()
 		if e := wsc.WriteJSON(map[string]interface{}{
 			"type":  "created",
 			"truck": tk,
@@ -67,6 +72,8 @@ func showTrucks(w http.ResponseWriter, r *http.Request) {
 		}
 		return false
 	}, func(tid string, seq int, id string, x, y float64) (stop bool) {
+		muWsc.Lock()
+		defer muWsc.Unlock()
 		if e := wsc.WriteJSON(map[string]interface{}{
 			"type": "moved",
 			"tid":  tid, "seq": seq, "_id": id, "x": x, "y": y,
@@ -76,6 +83,8 @@ func showTrucks(w http.ResponseWriter, r *http.Request) {
 		}
 		return false
 	}, func(tid string, seq int, id string, moving bool) (stop bool) {
+		muWsc.Lock()
+		defer muWsc.Unlock()
 		if e := wsc.WriteJSON(map[string]interface{}{
 			"type": "stopped",
 			"tid":  tid, "seq": seq, "_id": id, "moving": moving,
@@ -85,6 +94,10 @@ func showTrucks(w http.ResponseWriter, r *http.Request) {
 		}
 		return false
 	})
+
+	// kickoff drivers team TODO find a better place to do this
+	driversApi.DriversKickoff(tid)
+
 }
 
 func addTruck(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +105,7 @@ func addTruck(w http.ResponseWriter, r *http.Request) {
 	result := map[string]interface{}{}
 	w.Header().Set("Content-Type", "application/json")
 	defer func() {
-		if e := recover(); err != nil {
+		if e := recover(); e != nil {
 			err = errors.RichError(e)
 		}
 		if err != nil {
@@ -134,7 +147,7 @@ func moveTruck(w http.ResponseWriter, r *http.Request) {
 	result := map[string]interface{}{}
 	w.Header().Set("Content-Type", "application/json")
 	defer func() {
-		if e := recover(); err != nil {
+		if e := recover(); e != nil {
 			err = errors.RichError(e)
 		}
 		if err != nil {
@@ -177,7 +190,7 @@ func stopTruck(w http.ResponseWriter, r *http.Request) {
 	result := map[string]interface{}{}
 	w.Header().Set("Content-Type", "application/json")
 	defer func() {
-		if e := recover(); err != nil {
+		if e := recover(); e != nil {
 			err = errors.RichError(e)
 		}
 		if err != nil {

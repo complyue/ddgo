@@ -158,6 +158,27 @@ StopTruck(%#v,%#v,%#v,%#v)
 `, tid, seq, id, moving))
 }
 
+func (api *ConsumerAPI) DriversKickoff(tid string) error {
+	ctx := api.ctx
+
+	if ctx == nil {
+		// proc local service consuming
+		return DriversKickoff(tid)
+	}
+
+	// remote service consuming over HBI wire
+
+	// get service method result in rpc style
+	err := ctx.PoToPeer().Notif(fmt.Sprintf(`
+DriversKickoff(%#v)
+`, tid))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // implementation details at consumer endpoint for service consuming over HBI wire
 type consumerContext struct {
 	hbi.HoContext

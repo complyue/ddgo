@@ -113,3 +113,7 @@ func (ctx *serviceContext) StopTruck(
 ) error {
 	return StopTruck(tid, seq, id, moving)
 }
+
+func (ctx *serviceContext) DriversKickoff(tid string) error {
+	return DriversKickoff(tid)
+}
