@@ -26,6 +26,33 @@
 ???
 {% endblock body_content %}
 
+
+<div id="login-background"></div>
+
+<div id="login-dialog">
+    <div class="LoginPane">
+        <div class="DlgRow">
+            <label> User ID: <input id="uid" type="email" value=""/></label>
+        </div>
+        <div class="DlgRow">
+            <label>Password: <input id="pwd" type="password" value=""/></label>
+        </div>
+        <div style="flex: 1; ">
+            <hr/>
+        </div>
+        <div class="DlgRow">
+            <button id="register">Register</button>
+            &nbsp;&nbsp;
+            <button id="login">Login</button>
+        </div>
+        <div id="authMsg" class="DlgRow" style="flex: 6;">
+            ...
+        </div>
+    </div>
+</div>
+​
+
+
 {% block body_end_scripts %}
 <script type="text/javascript" src="/static/dd.es6"></script>
 {% endblock body_end_scripts %}

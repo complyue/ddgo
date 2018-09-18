@@ -1,9 +1,9 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="web backend" type="GoApplicationRunConfiguration" factoryName="Go Application" singleton="true">
+  <configuration default="false" name="web backend dev" type="GoApplicationRunConfiguration" factoryName="Go Application" singleton="true">
     <module name="ddgo" />
     <working_directory value="$PROJECT_DIR$/" />
     <go_parameters value="-i" />
-    <parameters value="-v=1" />
+    <parameters value="-dev -v=1" />
     <kind value="PACKAGE" />
     <filePath value="cmd/web/backend/main.go" />
     <package value="github.com/complyue/ddgo/cmd/web/backend" />

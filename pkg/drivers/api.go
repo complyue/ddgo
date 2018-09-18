@@ -8,17 +8,14 @@ import (
 	"github.com/golang/glog"
 )
 
-/*
-	use tid as session for tenant isolation,
-	and tunnel can further be specified to isolate per tenant or per other means
-*/
-func GetDriversService(tunnel string, session string) (*ConsumerAPI, error) {
+func GetDriversService(tid string) (*ConsumerAPI, error) {
 	if svc, err := svcs.GetService("drivers", func() hbi.HoContext {
 		api := NewConsumerAPI()
 		ctx := api.GetHoCtx()
 		ctx.Put("api", api)
 		return ctx
-	}, tunnel, session); err != nil {
+	}, // single tunnel, use tid as sticky session id, for tenant isolation
+		"", tid, true); err != nil {
 		return nil, err
 	} else {
 		return svc.Hosting.HoCtx().Get("api").(*ConsumerAPI), nil

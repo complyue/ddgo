@@ -9,6 +9,24 @@ import (
 	"net/http"
 )
 
+func definePageRoutes(router *mux.Router) {
+
+	router.Handle("/", &Pongo2Page{
+		TmplFile: "web/templates/index.html",
+		Ctx: pongo2.Context{
+			"title": "Despatch & Delivery",
+		},
+	})
+
+	router.Handle("/{tid}/plot", &Pongo2Page{
+		TmplFile: "web/templates/plot.html",
+		Ctx: pongo2.Context{
+			"title": "plot - Despatch & Delivery",
+		},
+	})
+
+}
+
 type Pongo2Page struct {
 	TmplFile string
 	Ctx      pongo2.Context
@@ -26,7 +44,7 @@ func (page *Pongo2Page) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("%+v", err), http.StatusInternalServerError)
 		}
 	}()
-	if page.tmpl == nil {
+	if page.tmpl == nil || devMode {
 		page.tmpl = pongo2.Must(pongo2.FromFile(page.TmplFile))
 	}
 	ctx := make(pongo2.Context)
@@ -40,22 +58,4 @@ func (page *Pongo2Page) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-}
-
-func definePageRoutes(router *mux.Router) {
-
-	router.Handle("/", &Pongo2Page{
-		TmplFile: "web/templates/index.html",
-		Ctx: pongo2.Context{
-			"title": "Despatch & Delivery",
-		},
-	})
-
-	router.Handle("/{tid}/plot", &Pongo2Page{
-		TmplFile: "web/templates/plot.html",
-		Ctx: pongo2.Context{
-			"title": "plot - Despatch & Delivery",
-		},
-	})
-
 }

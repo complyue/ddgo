@@ -28,7 +28,7 @@ func DriversKickoff(tid string) error {
 	// one time kickoff for the specified tid
 
 	// load & watch waypoints
-	routesAPI, err := GetRoutesService("", tid)
+	routesAPI, err := GetRoutesService(tid)
 	if err != nil {
 		return err
 	}

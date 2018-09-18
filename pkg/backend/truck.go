@@ -42,7 +42,7 @@ func showTrucks(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	tid := params["tid"]
 
-	driversApi, err := GetDriversService("", tid)
+	driversApi, err := GetDriversService(tid)
 	if err != nil {
 		panic(err)
 	}
@@ -131,7 +131,7 @@ func addTruck(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 
-	driversApi, err := GetDriversService("", tid)
+	driversApi, err := GetDriversService(tid)
 	if err != nil {
 		panic(err)
 	}
@@ -171,10 +171,10 @@ func moveTruck(w http.ResponseWriter, r *http.Request) {
 	}
 	decoder := json.NewDecoder(r.Body)
 	if err = decoder.Decode(&reqData); err != nil {
-		return
+		panic(err)
 	}
 
-	driversApi, err := GetDriversService("", tid)
+	driversApi, err := GetDriversService(tid)
 	if err != nil {
 		panic(err)
 	}
@@ -214,10 +214,10 @@ func stopTruck(w http.ResponseWriter, r *http.Request) {
 	}
 	decoder := json.NewDecoder(r.Body)
 	if err = decoder.Decode(&reqData); err != nil {
-		return
+		panic(err)
 	}
 
-	driversApi, err := GetDriversService("", tid)
+	driversApi, err := GetDriversService(tid)
 	if err != nil {
 		panic(err)
 	}

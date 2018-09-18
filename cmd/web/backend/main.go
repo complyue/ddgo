@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"github.com/complyue/ddgo/pkg/auth"
 	"github.com/complyue/ddgo/pkg/backend"
 	"github.com/complyue/ddgo/pkg/drivers"
 	"github.com/complyue/ddgo/pkg/routes"
@@ -25,9 +26,11 @@ func init() {
 }
 
 var mono bool
+var devMode bool
 
 func init() {
 	flag.BoolVar(&mono, "mono", false, "Run in monolith mode.")
+	flag.BoolVar(&devMode, "dev", false, "Run in development mode.")
 }
 
 func main() {
@@ -43,18 +46,25 @@ func main() {
 
 	flag.Parse()
 
-	if mono { // monolith mode, create embedded consumer api objects and monkey patch consuming packages
+	if mono {
+		// monolith mode, create embedded consumer api objects,
+		// and monkey patch consuming packages to use them
+
+		authApi := auth.NewConsumerAPI()
+		backend.GetAuthService = func() (*auth.ConsumerAPI, error) {
+			return authApi, nil
+		}
 
 		routesApi := routes.NewConsumerAPI()
-		backend.GetRoutesService = func(tunnel, session string) (*routes.ConsumerAPI, error) {
+		backend.GetRoutesService = func(tid string) (*routes.ConsumerAPI, error) {
 			return routesApi, nil
 		}
-		drivers.GetRoutesService = func(tunnel, session string) (*routes.ConsumerAPI, error) {
+		drivers.GetRoutesService = func(tid string) (*routes.ConsumerAPI, error) {
 			return routesApi, nil
 		}
 
 		driversApi := drivers.NewConsumerAPI()
-		backend.GetDriversService = func(tunnel, session string) (*drivers.ConsumerAPI, error) {
+		backend.GetDriversService = func(tid string) (*drivers.ConsumerAPI, error) {
 			return driversApi, nil
 		}
 

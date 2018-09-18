@@ -41,7 +41,7 @@ func showWaypoints(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	tid := params["tid"]
 
-	routesApi, err := GetRoutesService("", tid)
+	routesApi, err := GetRoutesService(tid)
 	if err != nil {
 		panic(err)
 	}
@@ -106,10 +106,10 @@ func addWaypoint(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	err = decoder.Decode(&reqData)
 	if err != nil {
-		return
+		panic(err)
 	}
 
-	routesApi, err := GetRoutesService("", tid)
+	routesApi, err := GetRoutesService(tid)
 	if err != nil {
 		panic(err)
 	}
@@ -152,7 +152,7 @@ func moveWaypoint(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 
-	routesApi, err := GetRoutesService("", tid)
+	routesApi, err := GetRoutesService(tid)
 	if err != nil {
 		panic(err)
 	}

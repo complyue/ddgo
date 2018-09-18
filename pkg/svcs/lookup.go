@@ -56,13 +56,13 @@ func GetServiceConfig(serviceKey string) (cfg ServiceConfig, err error) {
 
 func GetService(
 	serviceKey string, ctxFact func() hbi.HoContext,
-	tunnel string, session string,
+	tunnel string, session string, sticky bool,
 ) (svcConn *hbi.TCPConn, err error) {
 	consumer, err := getServicePool(serviceKey)
 	if err != nil {
 		return nil, err
 	}
-	svcConn, err = consumer.GetService(ctxFact, tunnel, session, true)
+	svcConn, err = consumer.GetService(ctxFact, tunnel, session, sticky)
 	return
 }
 

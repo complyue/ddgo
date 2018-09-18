@@ -3,7 +3,7 @@
     <module name="ddgo" />
     <working_directory value="$PROJECT_DIR$/" />
     <go_parameters value="-i" />
-    <parameters value="-mono -v=1" />
+    <parameters value="-mono -dev -v=1" />
     <kind value="PACKAGE" />
     <filePath value="cmd/web/backend/main.go" />
     <package value="github.com/complyue/ddgo/cmd/web/backend" />
