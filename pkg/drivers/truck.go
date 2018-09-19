@@ -135,7 +135,7 @@ func WatchTrucks(
 				}
 				for nextTail != nil {
 					knownTail = nextTail
-					if ackCre(&knownTail.tk.Truck) {
+					if ackCre(knownTail.truck) {
 						// indicated to stop watching by returning true
 						return
 					}
@@ -234,8 +234,9 @@ type tkForDb struct {
 
 // record for create event
 type tkCre struct {
-	tk   tkForDb
-	next *tkCre
+	tk    tkForDb // value struct for db document
+	truck *Truck  // pointer to the authoritative data object
+	next  *tkCre
 }
 
 // record for move event
@@ -300,8 +301,9 @@ func AddTruck(tid string, x, y float64) error {
 	tkl := fullList.Trucks
 	insertPos := len(tkl)
 	tkl = append(tkl, newTail.tk.Truck)
+	newTail.truck = &tkl[insertPos]
 	fullList.Trucks = tkl
-	fullList.bySeq[newTail.tk.Seq] = &tkl[insertPos]
+	fullList.bySeq[newTail.tk.Seq] = newTail.truck
 
 	// publish the create event
 	if tkCreTail != nil {

@@ -130,7 +130,7 @@ func WatchWaypoints(
 				}
 				for nextTail != nil {
 					knownTail = nextTail
-					if ackCre(&knownTail.wp.Waypoint) {
+					if ackCre(knownTail.waypoint) {
 						// indicated to stop watching by returning true
 						return
 					}
@@ -198,8 +198,9 @@ type wpForDb struct {
 
 // record for create event
 type wpCre struct {
-	wp   wpForDb
-	next *wpCre
+	wp       wpForDb
+	waypoint *Waypoint
+	next     *wpCre
 }
 
 // record for move event
@@ -298,8 +299,9 @@ func AddWaypoint(tid string, x, y float64) error {
 	wpl := fullList.Waypoints
 	insertPos := len(wpl)
 	wpl = append(wpl, newTail.wp.Waypoint)
+	newTail.waypoint = &wpl[insertPos]
 	fullList.Waypoints = wpl
-	fullList.bySeq[newTail.wp.Seq] = &wpl[insertPos]
+	fullList.bySeq[newTail.wp.Seq] = newTail.waypoint
 
 	// publish the create event
 	if wpCreTail != nil {
