@@ -84,7 +84,7 @@ func main() {
 			m4w, err = hbi.DialTCP(svcpool.NewWorkerHoContext(), teamAddr)
 			p2p := m4w.PoToPeer()
 			p2p.Notif(fmt.Sprintf(`
-WorkerOnline(%#v,%#v)
+WorkerOnline(%#v,%#v,"")
 `, os.Getpid(), procPort))
 			glog.Infof("Drivers service proc [pid=%d,team=%s] reported to master.", os.Getpid(), teamAddr)
 		})
