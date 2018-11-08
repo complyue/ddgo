@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"github.com/complyue/ddgo/pkg/auth"
 	"github.com/complyue/ddgo/pkg/backend"
 	"github.com/complyue/ddgo/pkg/drivers"
 	"github.com/complyue/ddgo/pkg/routes"
@@ -49,11 +48,6 @@ func main() {
 	if mono {
 		// monolith mode, create embedded consumer api objects,
 		// and monkey patch consuming packages to use them
-
-		authApi := auth.NewConsumerAPI()
-		backend.GetAuthService = func() (*auth.ConsumerAPI, error) {
-			return authApi, nil
-		}
 
 		routesApi := routes.NewConsumerAPI()
 		backend.GetRoutesService = func(tid string) (*routes.ConsumerAPI, error) {

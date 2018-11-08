@@ -1,16 +1,10 @@
 package backend
 
 import (
-	"github.com/complyue/ddgo/pkg/auth"
 	"github.com/complyue/ddgo/pkg/drivers"
 	"github.com/complyue/ddgo/pkg/routes"
 	"github.com/gorilla/mux"
 )
-
-// this var can be replaced to facilitate alternative service discovery mechanism
-var GetAuthService = func() (*auth.ConsumerAPI, error) {
-	return auth.GetAuthService()
-}
 
 // this var can be replaced to facilitate alternative service discovery mechanism
 var GetRoutesService = func(tid string) (*routes.ConsumerAPI, error) {
@@ -24,8 +18,8 @@ var GetDriversService = func(tid string) (*drivers.ConsumerAPI, error) {
 
 func DefineHttpRoutes(router *mux.Router) {
 
-	router.HandleFunc("/api/{tid}/auth", authenticateUser)
-	router.HandleFunc("/api/{tid}/register", registerUser)
+	// router.HandleFunc("/api/{tid}/auth", authenticateUser)
+	// router.HandleFunc("/api/{tid}/register", registerUser)
 
 	router.HandleFunc("/api/{tid}/waypoint", showWaypoints)
 	router.HandleFunc("/api/{tid}/waypoint/add", addWaypoint)

@@ -27,3 +27,6 @@
 /.idea/tasks.xml
 /.idea/dictionaries/
 /.idea/.name
+
+# delve debug executable
+debug

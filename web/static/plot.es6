@@ -1,6 +1,6 @@
 (async () => {
 
-    let authToken = await getAuthToken(window.tid);
+    // let authToken = await getAuthToken(window.tid);
 
     const showArea = $('#show_area'),
         waypointTmpl = $('#tmpl .Waypoint'), truckTmpl = $('#tmpl .Truck');
