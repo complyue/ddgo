@@ -3,6 +3,7 @@ package routes
 import (
 	"fmt"
 	"github.com/complyue/ddgo/pkg/dbc"
+	"github.com/complyue/ddgo/pkg/isoevt"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
@@ -103,10 +104,19 @@ func ListWaypoints(tid string) (*WaypointList, error) {
 	return fullList, nil
 }
 
+var (
+	wpCreES, wpMovES *isoevt.EventStream
+)
+
+func init() {
+	wpCreES = isoevt.NewStream()
+	wpMovES = isoevt.NewStream()
+}
+
 func WatchWaypoints(
 	tid string,
 	ackCre func(wp *Waypoint) bool,
-	ackMv func(tid string, seq int, id string, x, y float64) bool,
+	ackMov func(tid string, seq int, id string, x, y float64) bool,
 ) {
 	if err := ensureLoadedFor(tid); err != nil {
 		// err has been logged
@@ -114,78 +124,18 @@ func WatchWaypoints(
 	}
 
 	if ackCre != nil {
-		go func() {
-			defer func() { // stop watching on watcher func panic, don't crash
-				err := recover()
-				if err != nil {
-					glog.Error(errors.RichError(err))
-				}
-			}()
-			var knownTail, nextTail *wpCre
-			for {
-				if knownTail == nil {
-					nextTail = wpCreTail
-				} else {
-					nextTail = knownTail.next
-				}
-				for nextTail != nil {
-					knownTail = nextTail
-					if ackCre(knownTail.waypoint) {
-						// indicated to stop watching by returning true
-						return
-					}
-					nextTail = knownTail.next
-				}
-				wpCreated.L.Lock()
-				wpCreated.Wait()
-				wpCreated.L.Unlock()
-			}
-		}()
+		wpCreES.Watch(func(eo interface{}) bool {
+			return ackCre(eo.(*Waypoint))
+		})
 	}
 
-	if ackMv != nil {
-		go func() {
-			defer func() { // stop watching on watcher func panic, don't crash
-				err := recover()
-				if err != nil {
-					glog.Error(errors.RichError(err))
-				}
-			}()
-			var knownTail, nextTail *wpMv
-			for {
-				if knownTail == nil {
-					nextTail = wpMvTail
-				} else {
-					nextTail = knownTail.next
-				}
-				for nextTail != nil {
-					knownTail = nextTail
-					if ackMv(
-						knownTail.tid, knownTail.seq, knownTail.id,
-						knownTail.x, knownTail.y,
-					) {
-						// indicated to stop watching by returning true
-						return
-					}
-					nextTail = knownTail.next
-				}
-				wpMoved.L.Lock()
-				wpMoved.Wait()
-				wpMoved.L.Unlock()
-			}
-		}()
+	if ackMov != nil {
+		wpMovES.Watch(func(eo interface{}) bool {
+			wp := eo.(*Waypoint)
+			return ackMov(tid, wp.Seq, wp.Id.Hex(), wp.X, wp.Y)
+		})
 	}
-
 }
-
-// singly linked lists are used for event records to be consumed, so that:
-// given source and each watcher goro has a local tail reference, as source
-// keeps rolling forward, watchers will get notified and roll their tails
-// forward too. thus an old record object automatically become eligible
-// for garbage collection, after all watchers have seen it and rolled their
-// tail reference to next. a record object will not be garbage collected
-// until all watchers have process it.
-// todo the `next` pointer shall be atomic ?
 
 // individual in-memory waypoint objects do not store the tid, tid only
 // meaningful for a waypoint list. however when stored as mongodb documents,
@@ -194,37 +144,6 @@ func WatchWaypoints(
 type wpForDb struct {
 	Tid      string `bson:"tid"`
 	Waypoint `bson:",inline"`
-}
-
-// record for create event
-type wpCre struct {
-	wp       wpForDb
-	waypoint *Waypoint
-	next     *wpCre
-}
-
-// record for move event
-type wpMv struct {
-	tid  string
-	seq  int
-	id   string
-	x, y float64
-	next *wpMv
-}
-
-var (
-	wpCreTail *wpCre
-	wpMvTail  *wpMv
-	// conditions to be waited by watchers for new events
-	wpCreated, wpMoved *sync.Cond
-)
-
-func init() {
-	var (
-		wpCreatedLock, wpMovedLock sync.Mutex
-	)
-	wpCreated = sync.NewCond(&wpCreatedLock)
-	wpMoved = sync.NewCond(&wpMovedLock)
 }
 
 func MoveWaypoint(tid string, seq int, id string, x, y float64) error {
@@ -240,10 +159,6 @@ func MoveWaypoint(tid string, seq int, id string, x, y float64) error {
 		return errors.New(fmt.Sprintf("Waypoint id mismatch [%s] vs [%s]", id, wp.Id.Hex()))
 	}
 
-	// sync with event condition for data consistency
-	wpMoved.L.Lock()
-	defer wpMoved.L.Unlock()
-
 	// update backing storage, the db
 	if err := coll().Update(bson.M{
 		"tid": tid, "_id": wp.Id,
@@ -256,16 +171,8 @@ func MoveWaypoint(tid string, seq int, id string, x, y float64) error {
 	// update in-memory value, after successful db update
 	wp.X, wp.Y = x, y
 
-	// publish the move event
-	newTail := &wpMv{
-		tid: tid, seq: wp.Seq, id: wp.Id.Hex(),
-		x: x, y: y,
-	}
-	if wpMvTail != nil {
-		wpMvTail.next = newTail
-	}
-	wpMvTail = newTail
-	wpMoved.Broadcast()
+	wpMovES.Post(wp)
+
 	return nil
 }
 
@@ -277,20 +184,16 @@ func AddWaypoint(tid string, x, y float64) error {
 		return err
 	}
 
-	// sync with event condition for data consistency
-	wpCreated.L.Lock()
-	defer wpCreated.L.Unlock()
-
 	// prepare the create event record, which contains a waypoint data object value
 	newSeq := 1 + len(fullList.Waypoints)   // assign tenant wide unique seq
 	newLabel := fmt.Sprintf("#%d#", newSeq) // label with some rules
-	newTail := &wpCre{wp: wpForDb{tid, Waypoint{
+	wp := wpForDb{tid, Waypoint{
 		Id:  bson.NewObjectId(),
 		Seq: newSeq, Label: newLabel,
 		X: x, Y: y,
-	}}}
+	}}
 	// write into backing storage, the db
-	err := coll().Insert(&newTail.wp)
+	err := coll().Insert(&wp)
 	if err != nil {
 		return err
 	}
@@ -298,16 +201,13 @@ func AddWaypoint(tid string, x, y float64) error {
 	// add to in-memory list and index, after successful db insert
 	wpl := fullList.Waypoints
 	insertPos := len(wpl)
-	wpl = append(wpl, newTail.wp.Waypoint)
-	newTail.waypoint = &wpl[insertPos]
+	wpl = append(wpl, wp.Waypoint)
+	waypoint := &wpl[insertPos]
 	fullList.Waypoints = wpl
-	fullList.bySeq[newTail.wp.Seq] = newTail.waypoint
+	fullList.bySeq[waypoint.Seq] = waypoint
 
 	// publish the create event
-	if wpCreTail != nil {
-		wpCreTail.next = newTail
-	}
-	wpCreTail = newTail
-	wpCreated.Broadcast()
+	wpCreES.Post(wp)
+
 	return nil
 }

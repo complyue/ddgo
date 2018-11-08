@@ -3,6 +3,7 @@ package drivers
 import (
 	"fmt"
 	"github.com/complyue/ddgo/pkg/dbc"
+	"github.com/complyue/ddgo/pkg/isoevt"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
@@ -107,11 +108,21 @@ func ListTrucks(tid string) (*TruckList, error) {
 	return fullList, nil
 }
 
+var (
+	tkCreES, tkMovES, tkStpES *isoevt.EventStream
+)
+
+func init() {
+	tkCreES = isoevt.NewStream()
+	tkMovES = isoevt.NewStream()
+	tkStpES = isoevt.NewStream()
+}
+
 func WatchTrucks(
 	tid string,
 	ackCre func(tk *Truck) bool,
-	ackMv func(tid string, seq int, id string, x, y float64) bool,
-	ackStop func(tid string, seq int, id string, moving bool) bool,
+	ackMov func(tid string, seq int, id string, x, y float64) bool,
+	ackStp func(tid string, seq int, id string, moving bool) bool,
 ) {
 	if err := ensureLoadedFor(tid); err != nil {
 		// err has been logged
@@ -119,109 +130,24 @@ func WatchTrucks(
 	}
 
 	if ackCre != nil {
-		go func() {
-			defer func() { // stop watching on watcher func panic, don't crash
-				err := recover()
-				if err != nil {
-					glog.Error(errors.RichError(err))
-				}
-			}()
-			var knownTail, nextTail *tkCre
-			for {
-				if knownTail == nil {
-					nextTail = tkCreTail
-				} else {
-					nextTail = knownTail.next
-				}
-				for nextTail != nil {
-					knownTail = nextTail
-					if ackCre(knownTail.truck) {
-						// indicated to stop watching by returning true
-						return
-					}
-					nextTail = knownTail.next
-				}
-				tkCreated.L.Lock()
-				tkCreated.Wait()
-				tkCreated.L.Unlock()
-			}
-		}()
+		tkCreES.Watch(func(eo interface{}) bool {
+			tk := eo.(*Truck)
+			return ackCre(tk)
+		})
 	}
-
-	if ackMv != nil {
-		go func() {
-			defer func() { // stop watching on watcher func panic, don't crash
-				err := recover()
-				if err != nil {
-					glog.Error(errors.RichError(err))
-				}
-			}()
-			var knownTail, nextTail *tkMv
-			for {
-				if knownTail == nil {
-					nextTail = tkMvTail
-				} else {
-					nextTail = knownTail.next
-				}
-				for nextTail != nil {
-					knownTail = nextTail
-					if ackMv(
-						knownTail.tid, knownTail.seq, knownTail.id,
-						knownTail.x, knownTail.y,
-					) {
-						// indicated to stop watching by returning true
-						return
-					}
-					nextTail = knownTail.next
-				}
-				tkMoved.L.Lock()
-				tkMoved.Wait()
-				tkMoved.L.Unlock()
-			}
-		}()
+	if ackMov != nil {
+		tkMovES.Watch(func(eo interface{}) bool {
+			tk := eo.(*Truck)
+			return ackMov(tid, tk.Seq, tk.Id.Hex(), tk.X, tk.Y)
+		})
 	}
-
-	if ackStop != nil {
-		go func() {
-			defer func() { // stop watching on watcher func panic, don't crash
-				if err := recover(); err != nil {
-					glog.Error(errors.RichError(err))
-				}
-			}()
-			var knownTail, nextTail *tkStop
-			for {
-				if knownTail == nil {
-					nextTail = tkStopTail
-				} else {
-					nextTail = knownTail.next
-				}
-				for nextTail != nil {
-					knownTail = nextTail
-					if ackStop(
-						knownTail.tid, knownTail.seq, knownTail.id, knownTail.moving,
-					) {
-						// indicated to stop watching by returning true
-						return
-					}
-					nextTail = knownTail.next
-				}
-				tkStopped.L.Lock()
-				tkStopped.Wait()
-				tkStopped.L.Unlock()
-			}
-		}()
+	if ackStp != nil {
+		tkStpES.Watch(func(eo interface{}) bool {
+			tk := eo.(*Truck)
+			return ackStp(tid, tk.Seq, tk.Id.Hex(), tk.Moving)
+		})
 	}
-
 }
-
-// singly linked lists are used for event records to be consumed, so that:
-// given source and each watcher goro has a local tail reference, as source
-// keeps rolling forward, watchers will get notified and roll their tails
-// forward too. thus an old record object automatically become eligible
-// for garbage collection, after all watchers have seen it and rolled their
-// tail reference to next. a record object will not be garbage collected
-// until all watchers have process it.
-// todo the `next` pointer shall be atomic ?
 
 // individual in-memory truck objects do not store the tid, tid only
 // meaningful for a truck list. however when stored as mongodb documents,
@@ -232,45 +158,6 @@ type tkForDb struct {
 	Truck `bson:",inline"`
 }
 
-// record for create event
-type tkCre struct {
-	tk    tkForDb // value struct for db document
-	truck *Truck  // pointer to the authoritative data object
-	next  *tkCre
-}
-
-// record for move event
-type tkMv struct {
-	tid  string
-	seq  int
-	id   string
-	x, y float64
-	next *tkMv
-}
-
-// record for stop event
-type tkStop struct {
-	tid    string
-	seq    int
-	id     string
-	moving bool
-	next   *tkStop
-}
-
-var (
-	tkCreTail  *tkCre
-	tkMvTail   *tkMv
-	tkStopTail *tkStop
-	// conditions to be waited by watchers for new events
-	tkCreated, tkMoved, tkStopped *sync.Cond
-)
-
-func init() {
-	tkCreated = sync.NewCond(new(sync.Mutex))
-	tkMoved = sync.NewCond(new(sync.Mutex))
-	tkStopped = sync.NewCond(new(sync.Mutex))
-}
-
 func AddTruck(tid string, x, y float64) error {
 	muListChg.Lock() // is to change tk list, need sync
 	muListChg.Unlock()
@@ -279,20 +166,16 @@ func AddTruck(tid string, x, y float64) error {
 		return err
 	}
 
-	// sync with event condition for data consistency
-	tkCreated.L.Lock()
-	defer tkCreated.L.Unlock()
-
 	// prepare the create event record, which contains a truck data object value
 	newSeq := 1 + len(fullList.Trucks)      // assign tenant wide unique seq
 	newLabel := fmt.Sprintf("#%d#", newSeq) // label with some rules
-	newTail := &tkCre{tk: tkForDb{tid, Truck{
+	tk := tkForDb{tid, Truck{
 		Id:  bson.NewObjectId(),
 		Seq: newSeq, Label: newLabel,
 		X: x, Y: y,
-	}}}
+	}}
 	// write into backing storage, the db
-	err := coll().Insert(&newTail.tk)
+	err := coll().Insert(&tk)
 	if err != nil {
 		return err
 	}
@@ -300,17 +183,14 @@ func AddTruck(tid string, x, y float64) error {
 	// add to in-memory list and index, after successful db insert
 	tkl := fullList.Trucks
 	insertPos := len(tkl)
-	tkl = append(tkl, newTail.tk.Truck)
-	newTail.truck = &tkl[insertPos]
+	tkl = append(tkl, tk.Truck)
+	truck := &tkl[insertPos]
 	fullList.Trucks = tkl
-	fullList.bySeq[newTail.tk.Seq] = newTail.truck
+	fullList.bySeq[tk.Seq] = truck
 
 	// publish the create event
-	if tkCreTail != nil {
-		tkCreTail.next = newTail
-	}
-	tkCreTail = newTail
-	tkCreated.Broadcast()
+	tkCreES.Post(truck)
+
 	return nil
 }
 
@@ -327,10 +207,6 @@ func MoveTruck(tid string, seq int, id string, x, y float64) error {
 		return errors.New(fmt.Sprintf("Truck id mismatch [%s] vs [%s]", id, tk.Id.Hex()))
 	}
 
-	// sync with event condition for data consistency
-	tkMoved.L.Lock()
-	defer tkMoved.L.Unlock()
-
 	// update backing storage, the db
 	if err := coll().Update(bson.M{
 		"tid": tid, "_id": tk.Id,
@@ -344,15 +220,8 @@ func MoveTruck(tid string, seq int, id string, x, y float64) error {
 	tk.X, tk.Y = x, y
 
 	// publish the move event
-	newTail := &tkMv{
-		tid: tid, seq: tk.Seq, id: tk.Id.Hex(),
-		x: x, y: y,
-	}
-	if tkMvTail != nil {
-		tkMvTail.next = newTail
-	}
-	tkMvTail = newTail
-	tkMoved.Broadcast()
+	tkMovES.Post(tk)
+
 	return nil
 }
 
@@ -369,10 +238,6 @@ func StopTruck(tid string, seq int, id string, moving bool) error {
 		return errors.New(fmt.Sprintf("Truck id mismatch [%s] vs [%s]", id, tk.Id.Hex()))
 	}
 
-	// sync with event condition for data consistency
-	tkStopped.L.Lock()
-	defer tkStopped.L.Unlock()
-
 	// update backing storage, the db
 	if err := coll().Update(bson.M{
 		"tid": tid, "_id": tk.Id,
@@ -386,14 +251,7 @@ func StopTruck(tid string, seq int, id string, moving bool) error {
 	tk.Moving = moving
 
 	// publish the stopped event
-	newTail := &tkStop{
-		tid: tid, seq: tk.Seq, id: tk.Id.Hex(),
-		moving: moving,
-	}
-	if tkStopTail != nil {
-		tkStopTail.next = newTail
-	}
-	tkStopTail = newTail
-	tkStopped.Broadcast()
+	tkStpES.Post(tk)
+
 	return nil
 }
