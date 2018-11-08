@@ -51,7 +51,7 @@ func (ctx *serviceContext) WatchTrucks(tid string) {
 				glog.Error(errors.RichError(err))
 			}
 		}()
-		p2p := ctx.PoToPeer()
+		p2p := ctx.MustPoToPeer()
 		if p2p.Cancelled() {
 			return true
 		}
@@ -66,7 +66,7 @@ TkCreated()
 				glog.Error(errors.RichError(err))
 			}
 		}()
-		p2p := ctx.PoToPeer()
+		p2p := ctx.MustPoToPeer()
 		if p2p.Cancelled() {
 			return true
 		}
@@ -83,7 +83,7 @@ TkMoved(%#v,%#v,%#v,%#v,%#v)
 				glog.Error(errors.RichError(err))
 			}
 		}()
-		p2p := ctx.PoToPeer()
+		p2p := ctx.MustPoToPeer()
 		if p2p.Cancelled() {
 			return true
 		}

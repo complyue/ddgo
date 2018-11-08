@@ -52,7 +52,7 @@ func (api *ConsumerAPI) ListTrucks(tid string) (*TruckList, error) {
 	// remote service consuming over HBI wire
 
 	// initiate a conversation
-	co, err := ctx.PoToPeer().Co()
+	co, err := ctx.MustPoToPeer().Co()
 	if err != nil {
 		return nil, err
 	}
@@ -86,8 +86,8 @@ func (api *ConsumerAPI) WatchTrucks(
 
 	// remote service consuming over HBI wire
 
-	// PoToPeer() will RLock, obtain before our RLock, or will deadlock
-	p2p := ctx.PoToPeer()
+	// MustPoToPeer() will RLock, obtain before our RLock, or will deadlock
+	p2p := ctx.MustPoToPeer()
 
 	ctx.Lock() // WLock for proper sync
 	defer ctx.Unlock()
@@ -124,7 +124,7 @@ func (api *ConsumerAPI) AddTruck(tid string, x, y float64) error {
 		return AddTruck(tid, x, y)
 	}
 
-	return ctx.PoToPeer().Notif(fmt.Sprintf(`
+	return ctx.MustPoToPeer().Notif(fmt.Sprintf(`
 AddTruck(%#v,%#v,%#v)
 `, tid, x, y))
 }
@@ -137,7 +137,7 @@ func (api *ConsumerAPI) MoveTruck(
 		return MoveTruck(tid, seq, id, x, y)
 	}
 
-	return ctx.PoToPeer().Notif(fmt.Sprintf(`
+	return ctx.MustPoToPeer().Notif(fmt.Sprintf(`
 MoveTruck(%#v,%#v,%#v,%#v,%#v)
 `, tid, seq, id, x, y))
 }
@@ -150,7 +150,7 @@ func (api *ConsumerAPI) StopTruck(
 		return StopTruck(tid, seq, id, moving)
 	}
 
-	return ctx.PoToPeer().Notif(fmt.Sprintf(`
+	return ctx.MustPoToPeer().Notif(fmt.Sprintf(`
 StopTruck(%#v,%#v,%#v,%#v)
 `, tid, seq, id, moving))
 }
@@ -166,7 +166,7 @@ func (api *ConsumerAPI) DriversKickoff(tid string) error {
 	// remote service consuming over HBI wire
 
 	// get service method result in rpc style
-	err := ctx.PoToPeer().Notif(fmt.Sprintf(`
+	err := ctx.MustPoToPeer().Notif(fmt.Sprintf(`
 DriversKickoff(%#v)
 `, tid))
 	if err != nil {

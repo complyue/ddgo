@@ -51,7 +51,7 @@ func (ctx *serviceContext) WatchWaypoints(tid string) {
 				glog.Error(errors.RichError(err))
 			}
 		}()
-		p2p := ctx.PoToPeer()
+		p2p := ctx.MustPoToPeer()
 		if p2p.Cancelled() {
 			return true
 		}
@@ -66,7 +66,7 @@ WpCreated()
 				glog.Error(errors.RichError(err))
 			}
 		}()
-		p2p := ctx.PoToPeer()
+		p2p := ctx.MustPoToPeer()
 		if p2p.Cancelled() {
 			return true
 		}

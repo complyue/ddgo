@@ -52,7 +52,7 @@ func (api *ConsumerAPI) ListWaypoints(tid string) (*WaypointList, error) {
 	// remote service consuming over HBI wire
 
 	// initiate a conversation
-	co, err := ctx.PoToPeer().Co()
+	co, err := ctx.MustPoToPeer().Co()
 	if err != nil {
 		return nil, err
 	}
@@ -85,8 +85,8 @@ func (api *ConsumerAPI) WatchWaypoints(
 
 	// remote service consuming over HBI wire
 
-	// PoToPeer() will RLock, obtain before our RLock, or will deadlock
-	p2p := ctx.PoToPeer()
+	// MustPoToPeer() will RLock, obtain before our RLock, or will deadlock
+	p2p := ctx.MustPoToPeer()
 
 	ctx.Lock() // WLock for proper sync
 	defer ctx.Unlock()
@@ -120,7 +120,7 @@ func (api *ConsumerAPI) AddWaypoint(tid string, x, y float64) error {
 		return AddWaypoint(tid, x, y)
 	}
 
-	return ctx.PoToPeer().Notif(fmt.Sprintf(`
+	return ctx.MustPoToPeer().Notif(fmt.Sprintf(`
 AddWaypoint(%#v,%#v,%#v)
 `, tid, x, y))
 }
@@ -133,7 +133,7 @@ func (api *ConsumerAPI) MoveWaypoint(
 		return MoveWaypoint(tid, seq, id, x, y)
 	}
 
-	return ctx.PoToPeer().Notif(fmt.Sprintf(`
+	return ctx.MustPoToPeer().Notif(fmt.Sprintf(`
 MoveWaypoint(%#v,%#v,%#v,%#v,%#v)
 `, tid, seq, id, x, y))
 }
