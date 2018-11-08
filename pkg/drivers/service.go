@@ -3,9 +3,13 @@ package drivers
 
 import (
 	"fmt"
+	"github.com/complyue/ddgo/pkg/svcs"
 	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
+	"github.com/complyue/hbigo/pkg/svcpool"
 	"github.com/golang/glog"
+	"net"
+	"os"
 )
 
 // construct a service hosting context for serving over HBI wires
@@ -116,4 +120,30 @@ func (ctx *serviceContext) StopTruck(
 
 func (ctx *serviceContext) DriversKickoff(tid string) error {
 	return DriversKickoff(tid)
+}
+
+func ServeSolo() error {
+	var poolConfig svcs.ServiceConfig
+	poolConfig, err := svcs.GetServiceConfig("drivers")
+	if err != nil {
+		return err
+	}
+	// started with an embedded service registry always resolve to self
+	soloHost, soloPort := poolConfig.Host, poolConfig.Port
+	procAddr := fmt.Sprintf("%s:%d", soloHost, soloPort)
+	glog.Infof("Drivers service solo proc [pid=%d] starting ...", os.Getpid())
+	go hbi.ServeTCP(
+		func() hbi.HoContext {
+			type SoloCtx struct {
+				hbi.HoContext
+				svcpool.StaticRegistry
+			}
+			return &SoloCtx{NewServiceContext(),
+				svcpool.StaticRegistry{ServiceAddr: procAddr}}
+		}, procAddr, func(listener *net.TCPListener) {
+			glog.Infof("Drivers service solo proc [pid=%d] listening %+v",
+				os.Getpid(), listener.Addr())
+		},
+	)
+	return nil
 }

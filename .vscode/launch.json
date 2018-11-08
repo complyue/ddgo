@@ -18,7 +18,10 @@
       "request": "launch",
       "mode": "debug",
       "cwd": "${workspaceFolder}",
-      "program": "${workspaceFolder}/cmd/svc/routes"
+      "program": "${workspaceFolder}/cmd/svc/routes",
+      "args": [
+        "-solo"
+      ]
     },
     {
       "name": "drivers",
@@ -26,7 +29,10 @@
       "request": "launch",
       "mode": "debug",
       "cwd": "${workspaceFolder}",
-      "program": "${workspaceFolder}/cmd/svc/drivers"
+      "program": "${workspaceFolder}/cmd/svc/drivers",
+      "args": [
+        "-solo"
+      ]
     },
     {
       "name": "web",

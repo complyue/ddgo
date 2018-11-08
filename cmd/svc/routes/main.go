@@ -20,16 +20,19 @@ func init() {
 	// change glog default destination to stderr
 	if glog.V(0) { // should always be true, mention glog so it defines its flags before we change them
 		if err := flag.CommandLine.Set("logtostderr", "true"); nil != err {
-			log.Printf("Failed changing glog default desitination, err: %s", err)
+			log.Printf("Failed changing glog default desitination, err: %+v", err)
 		}
 	}
 }
 
 var teamAddr string
+var solo bool
 
 func init() {
 
 	flag.StringVar(&teamAddr, "team", "#", "service pool teaming address")
+
+	flag.BoolVar(&solo, "solo", false, "Run in solo mode.")
 
 }
 
@@ -52,7 +55,17 @@ func main() {
 		panic(err)
 	}
 
-	if teamAddr == "#" {
+	if solo {
+		// started with -solo, run with embedded service registry always resolve to self
+
+		if err = routes.ServeSolo(); err != nil {
+			glog.Error(err)
+		} else {
+			// block main goro forever
+			<-(chan struct{})(nil)
+		}
+
+	} else if teamAddr == "#" {
 		// started without -team, assume pool master
 
 		glog.Infof("Starting routes service pool with config: %+v\n", poolConfig)
