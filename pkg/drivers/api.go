@@ -6,39 +6,83 @@ import (
 	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/golang/glog"
+	"time"
 )
 
 func GetDriversService(tid string) (*ConsumerAPI, error) {
-	if svc, err := svcs.GetService("drivers", func() hbi.HoContext {
-		api := NewConsumerAPI()
-		ctx := api.GetHoCtx()
-		ctx.Put("api", api)
-		return ctx
-	}, // single tunnel, use tid as sticky session id, for tenant isolation
-		"", tid, true); err != nil {
-		return nil, err
-	} else {
-		return svc.Hosting.HoCtx().Get("api").(*ConsumerAPI), nil
+	api := NewConsumerAPI(tid)
+	api.conn()
+	return api, nil
+}
+
+func NewMonoAPI() *ConsumerAPI {
+	return &ConsumerAPI{
+		mono: true,
 	}
 }
 
-func NewConsumerAPI() *ConsumerAPI {
-	return &ConsumerAPI{}
+// NewConsumerAPI .
+func NewConsumerAPI(tid string) *ConsumerAPI {
+	return &ConsumerAPI{
+		tid: tid,
+	}
 }
 
+// ConsumerAPI .
 type ConsumerAPI struct {
-	ctx *consumerContext
+	mono bool // should never be changed after construction
+
+	mu  sync.Mutex
+	tid string
+	svc *hbi.TCPConn
 }
 
-// once invoked, the returned ctx must be used to establish a HBI connection
-// to a remote service.
-func (api *ConsumerAPI) GetHoCtx() hbi.HoContext {
-	if api.ctx == nil {
-		api.ctx = &consumerContext{
-			HoContext: hbi.NewHoContext(),
-		}
+// get posting endpoint
+func (api *ConsumerAPI) conn() (*consumerContext, hbi.Posting) {
+	svc := api.EnsureConn()
+	return svc.HoCtx().(*consumerContext), svc.MustPoToPeer()
+}
+
+const ReconnectDelay = 3 * time.Second
+
+// ensure connected to a service endpoint via hbi wire
+func (api *ConsumerAPI) EnsureConn() *hbi.TCPConn {
+	if api.mono {
+		panic(errors.New("This api is running in monolith mode."))
 	}
-	return api.ctx
+
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	var err error
+	for {
+		func() {
+			defer func() {
+				if e := recover(); e != nil {
+					err = errors.New(fmt.Sprintf("Error connecting to drivers service: %+v", e))
+				}
+			}()
+			if api.svc == nil || api.svc.Hosting.Cancelled() || api.svc.Posting.Cancelled() {
+				var svc *hbi.TCPConn
+				svc, err = svcs.GetService("drivers",
+					func() hbi.HoContext {
+						ctx := &consumerContext{
+							HoContext: hbi.NewHoContext(),
+						}
+						ctx.Put("api", api)
+						return ctx
+					}, // single tunnel, use tid as sticky session id, for tenant isolation
+					"", api.tid, true)
+				if err == nil {
+					api.svc = svc
+				}
+			}
+		}()
+		if err == nil {
+			return api.svc
+		}
+		glog.Errorf("Failed connecting drivers service, retrying... %+v", err)
+		time.Sleep(ReconnectDelay)
+	}
 }
 
 func (api *ConsumerAPI) ListTrucks(tid string) (*TruckList, error) {

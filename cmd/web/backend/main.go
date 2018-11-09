@@ -49,7 +49,7 @@ func main() {
 		// monolith mode, create embedded consumer api objects,
 		// and monkey patch consuming packages to use them
 
-		routesApi := routes.NewConsumerAPI()
+		routesApi := routes.NewMonoAPI()
 		backend.GetRoutesService = func(tid string) (*routes.ConsumerAPI, error) {
 			return routesApi, nil
 		}
@@ -57,7 +57,7 @@ func main() {
 			return routesApi, nil
 		}
 
-		driversApi := drivers.NewConsumerAPI()
+		driversApi := drivers.NewMonoAPI()
 		backend.GetDriversService = func(tid string) (*drivers.ConsumerAPI, error) {
 			return driversApi, nil
 		}
