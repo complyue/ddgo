@@ -51,11 +51,11 @@ func (ctx *serviceContext) WatchTrucks(tid string) {
 				glog.Error(errors.RichError(err))
 			}
 		}()
-		p2p := ctx.MustPoToPeer()
-		if p2p.Cancelled() {
+		po := ctx.MustPoToPeer()
+		if po.Cancelled() {
 			return true
 		}
-		p2p.NotifBSON(`
+		po.NotifBSON(`
 TkCreated()
 `, wp, "&Truck{}")
 		return
@@ -66,11 +66,11 @@ TkCreated()
 				glog.Error(errors.RichError(err))
 			}
 		}()
-		p2p := ctx.MustPoToPeer()
-		if p2p.Cancelled() {
+		po := ctx.MustPoToPeer()
+		if po.Cancelled() {
 			return true
 		}
-		if err := p2p.Notif(fmt.Sprintf(`
+		if err := po.Notif(fmt.Sprintf(`
 TkMoved(%#v,%#v,%#v,%#v,%#v)
 `, tid, seq, id, x, y)); err != nil {
 			return true
@@ -83,11 +83,11 @@ TkMoved(%#v,%#v,%#v,%#v,%#v)
 				glog.Error(errors.RichError(err))
 			}
 		}()
-		p2p := ctx.MustPoToPeer()
-		if p2p.Cancelled() {
+		po := ctx.MustPoToPeer()
+		if po.Cancelled() {
 			return true
 		}
-		if err := p2p.Notif(fmt.Sprintf(`
+		if err := po.Notif(fmt.Sprintf(`
 TkStopped(%#v,%#v,%#v,%#v)
 `, tid, seq, id, moving)); err != nil {
 			return true

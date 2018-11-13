@@ -6,6 +6,7 @@ import (
 	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/golang/glog"
+	"sync"
 	"time"
 )
 
@@ -131,13 +132,13 @@ func (api *ConsumerAPI) WatchTrucks(
 	// remote service consuming over HBI wire
 
 	// MustPoToPeer() will RLock, obtain before our RLock, or will deadlock
-	p2p := ctx.MustPoToPeer()
+	po := ctx.MustPoToPeer()
 
 	ctx.Lock() // WLock for proper sync
 	defer ctx.Unlock()
 
 	if ctx.WatchedTid == "" {
-		err := p2p.Notif(fmt.Sprintf(`
+		err := po.Notif(fmt.Sprintf(`
 WatchTrucks(%#v)
 `, tid))
 		if err != nil {

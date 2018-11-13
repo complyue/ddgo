@@ -6,8 +6,14 @@ import (
 	"sync"
 )
 
+type Member interface {
+	GetID() interface{}
+}
+
 type HouseKeeper interface {
 	Load(fullList []Member)
+
+	Read(id interface{}) (Member, bool)
 
 	Create(mo Member)
 	Update(mo Member)
@@ -28,7 +34,7 @@ type houseKeeper struct {
 	ccn     int // collection change number
 	members map[interface{}]Member
 
-	mu sync.Mutex // collection change mutex
+	mu sync.RWMutex // collection change mutex
 
 	ccES *isoevt.EventStream // collection change event stream
 }
@@ -46,6 +52,14 @@ func (hk *houseKeeper) Load(fullList []Member) {
 	{
 		hk.ccES.Post(EpochEvent{hk.ccn})
 	}
+}
+
+func (hk *houseKeeper) Read(id interface{}) (Member, bool) {
+	hk.mu.RLock()
+	defer hk.mu.RUnlock()
+
+	mbyid, ok := hk.members[id]
+	return mbyid, ok
 }
 
 func (hk *houseKeeper) Create(mo Member) {
@@ -90,8 +104,8 @@ func (hk *houseKeeper) Delete(mo Member) {
 }
 
 func (hk *houseKeeper) FetchAll() (ccn int, members []Member) {
-	hk.mu.Lock()
-	defer hk.mu.Unlock()
+	hk.mu.RLock()
+	defer hk.mu.RUnlock()
 
 	members = make([]Member, len(hk.members))
 	for _, cmo := range hk.members {
@@ -102,37 +116,9 @@ func (hk *houseKeeper) FetchAll() (ccn int, members []Member) {
 }
 
 func (hk *houseKeeper) Subscribe(subr Subscriber) {
-	hk.ccES.Watch(func(evt interface{}) bool {
-		switch evo := evt.(type) {
-		case EpochEvent:
-			return subr.Epoch(evo.ccn)
-		case CreateEvent:
-			return subr.MemberCreated(evo.ccn, evo.eo)
-		case UpdateEvent:
-			return subr.MemberUpdated(evo.ccn, evo.eo)
-		case DeleteEvent:
-			return subr.MemberDeleted(evo.ccn, evo.eo)
-		default:
-			panic(errors.Errorf("Event of type %T ?!", evt))
-		}
+	Dispatch(hk.ccES, subr, func() bool {
+		// fire Epoch event upon watching started
+		subr.Epoch(hk.ccn)
+		return false
 	})
-}
-
-type EpochEvent struct {
-	ccn int
-}
-
-type CreateEvent struct {
-	ccn int
-	eo  Member
-}
-
-type UpdateEvent struct {
-	ccn int
-	eo  Member
-}
-
-type DeleteEvent struct {
-	ccn int
-	eo  Member
 }

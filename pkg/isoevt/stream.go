@@ -42,7 +42,10 @@ func (es *EventStream) Post(evt interface{}) {
 // and keep an eye on one or more context's `Done()` signal, in addition to
 // performing various versatile checks & operations. either it returns true or panic,
 // the watching goro will stop, to have everything around it released.
-func (es *EventStream) Watch(evtCallback func(evt interface{}) bool) {
+func (es *EventStream) Watch(
+	evtCallback func(evt interface{}) (stop bool),
+	watchingCallback func() (stop bool),
+) {
 	go func() {
 		var knownTail, nextEvt *evtNode
 
@@ -53,23 +56,35 @@ func (es *EventStream) Watch(evtCallback func(evt interface{}) bool) {
 			// don't distribute present tail event, it's considered obsoleted
 			nextEvt = knownTail.next
 		} else {
-			// should distribute the event appears after watching started
+			// should distribute the 1st event appeared after watching started
 			for ; nextEvt == nil; nextEvt = es.tail {
 				es.cnd.Wait()
 			}
 		}
 		es.cnd.L.Unlock()
 
+		if watchingCallback != nil {
+			// signal watching started.
+			// the watching cb should avoid panic by itself, or let the process crash intentionally
+			if watchingCallback() {
+				// watching cb opt to stop watching
+				return
+			}
+		}
+
 		for { // continue dispatching until finished or failed
 			for nextEvt != nil { // loop through cached list without sync
 				func() {
 					defer func() { // catch watcher failure and stop
 						if err := recover(); err != nil {
+							// the watcher cb opt to stop watching by panic
 							log.Printf("Event watcher error: %+v\n", err)
 							runtime.Goexit()
 						}
 					}()
-					if fin := evtCallback(nextEvt.evt); fin { // finish watching
+					// the watcher cb can panic to stop watching, process crashing is hereby prevented for it
+					if stop := evtCallback(nextEvt.evt); stop {
+						// the watcher cb opt to stop watching by return value
 						runtime.Goexit()
 					}
 				}()

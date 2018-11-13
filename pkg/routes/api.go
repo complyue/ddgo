@@ -2,6 +2,8 @@ package routes
 
 import (
 	"fmt"
+	"github.com/complyue/ddgo/pkg/isoevt"
+	"github.com/complyue/ddgo/pkg/livecoll"
 	"github.com/complyue/ddgo/pkg/svcs"
 	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
@@ -10,15 +12,10 @@ import (
 	"time"
 )
 
-func GetRoutesService(tid string) (*ConsumerAPI, error) {
-	api := NewConsumerAPI(tid)
-	api.conn()
-	return api, nil
-}
-
 func NewMonoAPI() *ConsumerAPI {
 	return &ConsumerAPI{
 		mono: true,
+		// all other fields be nil
 	}
 }
 
@@ -26,6 +23,15 @@ func NewMonoAPI() *ConsumerAPI {
 func NewConsumerAPI(tid string) *ConsumerAPI {
 	return &ConsumerAPI{
 		tid: tid,
+
+		// create reconnection channel
+		chReconn: make(chan struct{}),
+
+		// no collection change stream unless subscribed
+		wpCCES: nil,
+
+		// initially not connected
+		svc: nil,
 	}
 }
 
@@ -33,15 +39,33 @@ func NewConsumerAPI(tid string) *ConsumerAPI {
 type ConsumerAPI struct {
 	mono bool // should never be changed after construction
 
-	mu  sync.Mutex
+	mu sync.Mutex //
+
 	tid string
+	// will be closed on reconnection (with a new chan allocated）
+	chReconn chan struct{}
+
+	// collection change event stream for waypoints
+	wpCCES *isoevt.EventStream
+
 	svc *hbi.TCPConn
 }
 
-// get posting endpoint
-func (api *ConsumerAPI) conn() (*consumerContext, hbi.Posting) {
-	svc := api.EnsureConn()
-	return svc.HoCtx().(*consumerContext), svc.MustPoToPeer()
+// implementation details at consumer endpoint for service consuming over HBI wire
+type consumerContext struct {
+	hbi.HoContext
+
+	api *ConsumerAPI
+
+	watchingWaypoints bool
+}
+
+// give types to be exposed, with typed nil pointer values to each
+func (ctx *consumerContext) TypesToExpose() []interface{} {
+	return []interface{}{
+		(*Waypoint)(nil),
+		(*WaypointsSnapshot)(nil),
+	}
 }
 
 const ReconnectDelay = 3 * time.Second
@@ -68,17 +92,36 @@ func (api *ConsumerAPI) EnsureConn() *hbi.TCPConn {
 					func() hbi.HoContext {
 						ctx := &consumerContext{
 							HoContext: hbi.NewHoContext(),
+							api:       api,
 						}
-						ctx.Put("api", api)
 						return ctx
 					}, // single tunnel, use tid as sticky session id, for tenant isolation
 					"", api.tid, true)
 				if err == nil {
 					api.svc = svc
+					// allocate a new reconnection channel, close existing one if present
+					chRecon := api.chReconn
+					api.chReconn = make(chan struct{})
+					if chRecon != nil {
+						close(chRecon)
+					}
 				}
 			}
 		}()
 		if err == nil {
+			if api.wpCCES != nil {
+				// consumer has subscribed to waypoints collection change event stream,
+				// make sure the connected wire has subscribed as well,
+				// Epoch event will be fired by service upon each subscription.
+				ctx := api.svc.HoCtx().(*consumerContext)
+				if !ctx.watchingWaypoints {
+					po := api.svc.MustPoToPeer()
+					po.Notif(fmt.Sprintf(`
+SubscribeWaypoints(%#v)
+`, api.tid))
+					ctx.watchingWaypoints = true
+				}
+			}
 			return api.svc
 		}
 		glog.Errorf("Failed connecting routes service, retrying... %+v", err)
@@ -86,86 +129,19 @@ func (api *ConsumerAPI) EnsureConn() *hbi.TCPConn {
 	}
 }
 
-func (api *ConsumerAPI) ListWaypoints(tid string) (*WaypointList, error) {
-	ctx := api.ctx
-
-	if ctx == nil {
-		// proc local service consuming
-		return ListWaypoints(tid)
-	}
-
-	// remote service consuming over HBI wire
-
-	// initiate a conversation
-	co, err := ctx.MustPoToPeer().Co()
-	if err != nil {
-		return nil, err
-	}
-	defer co.Close()
-
-	// get service method result in rpc style
-	wpl, err := co.Get(fmt.Sprintf(`
-ListWaypoints(%#v)
-`, tid), "&WaypointList{}")
-	if err != nil {
-		return nil, err
-	}
-
-	// return result with type asserted
-	return wpl.(*WaypointList), nil
-}
-
-func (api *ConsumerAPI) WatchWaypoints(
-	tid string,
-	ackCre func(wp *Waypoint) bool,
-	ackMv func(tid string, seq int, id string, x, y float64) bool,
-) {
-	ctx := api.ctx
-
-	if ctx == nil {
-		// proc local service consuming
-		WatchWaypoints(tid, ackCre, ackMv)
-		return
-	}
-
-	// remote service consuming over HBI wire
-
-	// MustPoToPeer() will RLock, obtain before our RLock, or will deadlock
-	p2p := ctx.MustPoToPeer()
-
-	ctx.Lock() // WLock for proper sync
-	defer ctx.Unlock()
-
-	if ctx.WatchedTid == "" {
-		err := p2p.Notif(fmt.Sprintf(`
-WatchWaypoints(%#v)
-`, tid))
-		if err != nil {
-			glog.Errorf("Failed watching waypoint events for tid=%s\n", tid, err)
-			// but still add watcher funcs to list by not returning here
-		} else {
-			ctx.WatchedTid = tid
-		}
-	} else if tid != ctx.WatchedTid {
-		glog.Errorf("Request to watch tid=%s while already be watching %s ?!", tid, ctx.WatchedTid)
-		return
-	}
-
-	if ackCre != nil {
-		ctx.WpCreWatchers = append(ctx.WpCreWatchers, ackCre)
-	}
-	if ackMv != nil {
-		ctx.WpMoveWatchers = append(ctx.WpMoveWatchers, ackMv)
-	}
+// get posting endpoint
+func (api *ConsumerAPI) conn() (*consumerContext, hbi.Posting) {
+	svc := api.EnsureConn()
+	return svc.HoCtx().(*consumerContext), svc.MustPoToPeer()
 }
 
 func (api *ConsumerAPI) AddWaypoint(tid string, x, y float64) error {
-	ctx := api.ctx
-	if ctx == nil {
+	if api.mono {
 		return AddWaypoint(tid, x, y)
 	}
 
-	return ctx.MustPoToPeer().Notif(fmt.Sprintf(`
+	_, po := api.conn()
+	return po.Notif(fmt.Sprintf(`
 AddWaypoint(%#v,%#v,%#v)
 `, tid, x, y))
 }
@@ -173,164 +149,108 @@ AddWaypoint(%#v,%#v,%#v)
 func (api *ConsumerAPI) MoveWaypoint(
 	tid string, seq int, id string, x, y float64,
 ) error {
-	ctx := api.ctx
-	if ctx == nil {
+	if api.mono {
 		return MoveWaypoint(tid, seq, id, x, y)
 	}
 
-	return ctx.MustPoToPeer().Notif(fmt.Sprintf(`
+	_, po := api.conn()
+	return po.Notif(fmt.Sprintf(`
 MoveWaypoint(%#v,%#v,%#v,%#v,%#v)
 `, tid, seq, id, x, y))
 }
 
-// implementation details at consumer endpoint for service consuming over HBI wire
-type consumerContext struct {
-	hbi.HoContext
+func (api *ConsumerAPI) SubscribeWaypoints(tid string, subr livecoll.Subscriber) {
+	if api.wpCCES == nil { // quick check without sync
+		func() {
+			api.mu.Lock()
+			defer api.mu.Unlock()
 
-	WatchedTid     string
-	WpCreWatchers  []func(wp *Waypoint) bool
-	WpMoveWatchers []func(tid string, seq int, id string, x, y float64) bool
-}
+			if api.wpCCES != nil { // final check after sync'ed
+				return
+			}
 
-// give types to be exposed, with typed nil pointer values to each
-func (ctx *consumerContext) TypesToExpose() []interface{} {
-	return []interface{}{
-		(*WaypointList)(nil),
-		(*Waypoint)(nil),
+			api.wpCCES = isoevt.NewStream()
+		}()
 	}
+	// now api.wpCCES is guarranteed to not be nil
+	// consumer side event stream dispatching for waypoint changes
+	livecoll.Dispatch(api.wpCCES, subr, nil)
+	// will ensure the wire subscribed as well
+	api.EnsureConn()
 }
 
-// a consumer side hosting method to relay wp creation notifications
-func (ctx *consumerContext) WpCreated() {
-	evtObj, err := ctx.Ho().CoRecvObj()
+func (ctx *consumerContext) wpCCES() *isoevt.EventStream {
+	api := ctx.api
+	// api.wpCCES won't change once assigned non-nil, we can trust thread local cache
+	cces := api.wpCCES // fast read without sync
+	if cces == nil {   // sync'ed read on cache miss
+		api.mu.Lock()
+		cces = api.wpCCES
+		api.mu.Unlock()
+	}
+	if cces == nil {
+		panic("Consumer side wp cces not present on service event ?!")
+	}
+	return cces
+}
+
+func (ctx *consumerContext) WpEpoch(ccn int) {
+	cces := ctx.wpCCES()
+	cces.Post(livecoll.EpochEvent{ccn})
+}
+
+// Create
+func (ctx *consumerContext) WpCreated(ccn int) {
+	eo, err := ctx.Ho().CoRecvObj()
 	if err != nil {
-		glog.Error(err)
-		return
+		panic(err)
 	}
-	wp, ok := evtObj.(*Waypoint)
-	if !ok {
-		err := errors.New(fmt.Sprintf("Sent a %T to WpCreated() ?!", evtObj))
-		glog.Error(err)
-		return
-	}
-
-	ctx.RLock() // RLock for proper sync
-	defer ctx.RUnlock()
-
-	cntNils := 0
-	for i, n := 0, len(ctx.WpCreWatchers); i < n; i++ {
-		ackCre := ctx.WpCreWatchers[i]
-		if ackCre == nil {
-			// already cleared
-			cntNils++
-			continue
-		}
-		func() {
-			defer func() {
-				err := recover()
-				if err != nil {
-					glog.Error(errors.RichError(err))
-					// clear on error
-					ctx.WpCreWatchers[i] = nil
-					cntNils++
-				}
-			}()
-			if ackCre(wp) {
-				// indicated stop by returning true, clear it
-				ctx.WpCreWatchers[i] = nil
-				cntNils++
-			}
-		}()
-	}
-	if cntNils > len(ctx.WpCreWatchers)/2 {
-		// compact the slice to drive nils out, must start a new goro, as this
-		// func currently holds a RLock, while `compactWatchers()` will WLock
-		go ctx.compactWatchers()
-	}
+	wp := eo.(*Waypoint)
+	cces := ctx.wpCCES()
+	cces.Post(livecoll.CreateEvent{ccn, wp})
 }
 
-// a consumer side hosting method to relay wp move notifications
-func (ctx *consumerContext) WpMoved(tid string, seq int, id string, x, y float64) {
-	ctx.RLock() // RLock for proper sync
-	defer ctx.RUnlock()
-
-	cntNils := 0
-	for i, n := 0, len(ctx.WpMoveWatchers); i < n; i++ {
-		ackMv := ctx.WpMoveWatchers[i]
-		if ackMv == nil {
-			// already cleared
-			cntNils++
-			continue
-		}
-		func() {
-			defer func() {
-				err := recover()
-				if err != nil {
-					glog.Error(errors.RichError(err))
-					// clear on error
-					ctx.WpMoveWatchers[i] = nil
-					cntNils++
-				}
-			}()
-			if ackMv(tid, seq, id, x, y) {
-				// indicated stop by returning true, clear it
-				ctx.WpMoveWatchers[i] = nil
-				cntNils++
-			}
-		}()
+// Update
+func (ctx *consumerContext) WpUpdated(ccn int) {
+	eo, err := ctx.Ho().CoRecvObj()
+	if err != nil {
+		panic(err)
 	}
-	if cntNils > len(ctx.WpMoveWatchers)/2 {
-		// compact the slice to drive nils out, must start a new goro, as this
-		// func currently holds a RLock, while `compactWatchers()` will WLock
-		go ctx.compactWatchers()
-	}
+	wp := eo.(*Waypoint)
+	cces := ctx.wpCCES()
+	cces.Post(livecoll.UpdateEvent{ccn, wp})
 }
 
-// utility method to clear out stopped watcher funcs from watcher list
-func (ctx *consumerContext) compactWatchers() {
-	ctx.Lock() // WLock for proper sync
-	defer ctx.Unlock()
-
-	// todo refactor the compact operation into a utility func,
-	// if only comes generics support from Go ...
-	var owPos int // overwrite position
-
-	owPos = -1
-	for s, ckPos, n := ctx.WpCreWatchers, 0, len(ctx.WpCreWatchers); ckPos < n; ckPos++ {
-		if s[ckPos] == nil {
-			if owPos < 0 {
-				owPos = ckPos
-			}
-		} else if owPos >= 0 {
-			s[owPos], s[ckPos] = s[ckPos], nil
-			for owPos++; owPos < ckPos; owPos++ {
-				if s[owPos] == nil {
-					break
-				}
-			}
-		}
+// Delete
+func (ctx *consumerContext) WpDeleted(ccn int) {
+	eo, err := ctx.Ho().CoRecvObj()
+	if err != nil {
+		panic(err)
 	}
-	if owPos >= 0 {
-		ctx.WpCreWatchers = ctx.WpCreWatchers[:owPos]
-	}
+	wp := eo.(*Waypoint)
+	cces := ctx.wpCCES()
+	cces.Post(livecoll.DeleteEvent{ccn, wp})
+}
 
-	owPos = -1
-	for s, ckPos, n := ctx.WpMoveWatchers, 0, len(ctx.WpMoveWatchers); ckPos < n; ckPos++ {
-		if s[ckPos] == nil {
-			if owPos < 0 {
-				owPos = ckPos
-			}
-		} else if owPos >= 0 {
-			s[owPos], s[ckPos] = s[ckPos], nil
-			for owPos++; owPos < ckPos; owPos++ {
-				if s[owPos] == nil {
-					break
-				}
-			}
-		}
+func (api *ConsumerAPI) FetchWaypoints(tid string) (ccn int, wpl []Waypoint) {
+	_, po := api.conn()
+	co, err := po.Co()
+	if err != nil {
+		panic(err)
 	}
-	if owPos >= 0 {
-		ctx.WpMoveWatchers = ctx.WpMoveWatchers[:owPos]
+	defer co.Close()
+
+	result, err := co.Get(fmt.Sprintf(`
+FetchWaypoints(%#v)
+`, tid), "&WaypointsSnapshot{}")
+	if err != nil {
+		panic(err)
+	}
+	wps := result.(*WaypointsSnapshot)
+	if wps.Tid != tid {
+		panic(errors.Errorf("Tid mismatch ?! [%s] vs [%s]", wps.Tid, tid))
 	}
 
+	ccn, wpl = wps.CCN, wps.Waypoints
+	return
 }
