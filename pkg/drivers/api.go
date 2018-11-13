@@ -90,12 +90,12 @@ func (api *ConsumerAPI) EnsureConn() *hbi.TCPConn {
 		func() {
 			defer func() {
 				if e := recover(); e != nil {
-					err = errors.New(fmt.Sprintf("Error connecting to routes service: %+v", e))
+					err = errors.New(fmt.Sprintf("Error connecting to drivers service: %+v", e))
 				}
 			}()
 			if api.svc == nil || api.svc.Hosting.Cancelled() || api.svc.Posting.Cancelled() {
 				var svc *hbi.TCPConn
-				svc, err = svcs.GetService("routes",
+				svc, err = svcs.GetService("drivers",
 					func() hbi.HoContext {
 						ctx := &consumerContext{
 							HoContext: hbi.NewHoContext(),
@@ -131,7 +131,7 @@ SubscribeTrucks(%#v)
 			}
 			return api.svc
 		}
-		glog.Errorf("Failed connecting routes service, retrying... %+v", err)
+		glog.Errorf("Failed connecting drivers service, retrying... %+v", err)
 		time.Sleep(ReconnectDelay)
 	}
 }
