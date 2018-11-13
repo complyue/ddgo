@@ -2,6 +2,11 @@ package main
 
 import (
 	"flag"
+	"log"
+	"net"
+	"net/http"
+	"time"
+
 	"github.com/complyue/ddgo/pkg/backend"
 	"github.com/complyue/ddgo/pkg/drivers"
 	"github.com/complyue/ddgo/pkg/routes"
@@ -9,10 +14,6 @@ import (
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
-	"log"
-	"net"
-	"net/http"
-	"time"
 )
 
 func init() {
@@ -49,17 +50,15 @@ func main() {
 		// monolith mode, create embedded consumer api objects,
 		// and monkey patch consuming packages to use them
 
-		routesApi := routes.NewMonoAPI()
-		backend.GetRoutesService = func(tid string) (*routes.ConsumerAPI, error) {
-			return routesApi, nil
+		backend.InitRoutesService = func(tid string) (*routes.ConsumerAPI, error) {
+			return routes.NewMonoAPI(tid), nil
 		}
-		drivers.GetRoutesService = func(tid string) (*routes.ConsumerAPI, error) {
-			return routesApi, nil
+		drivers.InitRoutesService = func(tid string) (*routes.ConsumerAPI, error) {
+			return routes.NewMonoAPI(tid), nil
 		}
 
-		driversApi := drivers.NewMonoAPI()
-		backend.GetDriversService = func(tid string) (*drivers.ConsumerAPI, error) {
-			return driversApi, nil
+		backend.InitDriversService = func(tid string) (*drivers.ConsumerAPI, error) {
+			return drivers.NewMonoAPI(tid), nil
 		}
 
 	}

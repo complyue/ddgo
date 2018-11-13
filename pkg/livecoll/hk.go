@@ -1,9 +1,10 @@
 package livecoll
 
 import (
+	"sync"
+
 	"github.com/complyue/ddgo/pkg/isoevt"
 	"github.com/complyue/hbigo/pkg/errors"
-	"sync"
 )
 
 type Member interface {
@@ -84,7 +85,7 @@ func (hk *houseKeeper) Update(mo Member) {
 	hk.ccn++
 
 	{
-		hk.ccES.Post(CreateEvent{hk.ccn, mo})
+		hk.ccES.Post(UpdateEvent{hk.ccn, mo})
 	}
 }
 
@@ -107,7 +108,7 @@ func (hk *houseKeeper) FetchAll() (ccn int, members []Member) {
 	hk.mu.RLock()
 	defer hk.mu.RUnlock()
 
-	members = make([]Member, len(hk.members))
+	members = make([]Member, 0, len(hk.members))
 	for _, cmo := range hk.members {
 		members = append(members, cmo)
 	}

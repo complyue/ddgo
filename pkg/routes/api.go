@@ -2,19 +2,21 @@ package routes
 
 import (
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/complyue/ddgo/pkg/isoevt"
 	"github.com/complyue/ddgo/pkg/livecoll"
 	"github.com/complyue/ddgo/pkg/svcs"
 	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/golang/glog"
-	"sync"
-	"time"
 )
 
-func NewMonoAPI() *ConsumerAPI {
+func NewMonoAPI(tid string) *ConsumerAPI {
 	return &ConsumerAPI{
 		mono: true,
+		tid:  tid,
 		// all other fields be nil
 	}
 }
@@ -66,6 +68,11 @@ func (ctx *consumerContext) TypesToExpose() []interface{} {
 		(*Waypoint)(nil),
 		(*WaypointsSnapshot)(nil),
 	}
+}
+
+// Tid getter
+func (api *ConsumerAPI) Tid() string {
+	return api.tid
 }
 
 const ReconnectDelay = 3 * time.Second
@@ -159,7 +166,40 @@ MoveWaypoint(%#v,%#v,%#v,%#v,%#v)
 `, tid, seq, id, x, y))
 }
 
-func (api *ConsumerAPI) SubscribeWaypoints(tid string, subr livecoll.Subscriber) {
+func (api *ConsumerAPI) FetchWaypoints() (ccn int, wpl []Waypoint) {
+	if api.mono {
+		wps := FetchWaypoints(api.tid)
+
+		ccn, wpl = wps.CCN, wps.Waypoints
+		return
+	}
+
+	_, po := api.conn()
+	co, err := po.Co()
+	if err != nil {
+		panic(err)
+	}
+	defer co.Close()
+
+	result, err := co.Get(fmt.Sprintf(`
+FetchWaypoints(%#v)
+`, api.tid), "&WaypointsSnapshot{}")
+	if err != nil {
+		panic(err)
+	}
+	wps := result.(*WaypointsSnapshot)
+
+	ccn, wpl = wps.CCN, wps.Waypoints
+	return
+}
+
+func (api *ConsumerAPI) SubscribeWaypoints(subr livecoll.Subscriber) {
+	if api.mono {
+		ensureLoadedFor(api.tid)
+		wpCollection.Subscribe(subr)
+		return
+	}
+
 	if api.wpCCES == nil { // quick check without sync
 		func() {
 			api.mu.Lock()
@@ -230,27 +270,4 @@ func (ctx *consumerContext) WpDeleted(ccn int) {
 	wp := eo.(*Waypoint)
 	cces := ctx.wpCCES()
 	cces.Post(livecoll.DeleteEvent{ccn, wp})
-}
-
-func (api *ConsumerAPI) FetchWaypoints(tid string) (ccn int, wpl []Waypoint) {
-	_, po := api.conn()
-	co, err := po.Co()
-	if err != nil {
-		panic(err)
-	}
-	defer co.Close()
-
-	result, err := co.Get(fmt.Sprintf(`
-FetchWaypoints(%#v)
-`, tid), "&WaypointsSnapshot{}")
-	if err != nil {
-		panic(err)
-	}
-	wps := result.(*WaypointsSnapshot)
-	if wps.Tid != tid {
-		panic(errors.Errorf("Tid mismatch ?! [%s] vs [%s]", wps.Tid, tid))
-	}
-
-	ccn, wpl = wps.CCN, wps.Waypoints
-	return
 }

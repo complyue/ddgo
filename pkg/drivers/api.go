@@ -2,23 +2,22 @@ package drivers
 
 import (
 	"fmt"
+	"sync"
+	"time"
+
+	"github.com/complyue/ddgo/pkg/isoevt"
+	"github.com/complyue/ddgo/pkg/livecoll"
 	"github.com/complyue/ddgo/pkg/svcs"
 	"github.com/complyue/hbigo"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/golang/glog"
-	"sync"
-	"time"
 )
 
-func GetDriversService(tid string) (*ConsumerAPI, error) {
-	api := NewConsumerAPI(tid)
-	api.conn()
-	return api, nil
-}
-
-func NewMonoAPI() *ConsumerAPI {
+func NewMonoAPI(tid string) *ConsumerAPI {
 	return &ConsumerAPI{
 		mono: true,
+		tid:  tid,
+		// all other fields be nil
 	}
 }
 
@@ -26,6 +25,15 @@ func NewMonoAPI() *ConsumerAPI {
 func NewConsumerAPI(tid string) *ConsumerAPI {
 	return &ConsumerAPI{
 		tid: tid,
+
+		// create reconnection channel
+		chReconn: make(chan struct{}),
+
+		// no collection change stream unless subscribed
+		tkCCES: nil,
+
+		// initially not connected
+		svc: nil,
 	}
 }
 
@@ -33,15 +41,38 @@ func NewConsumerAPI(tid string) *ConsumerAPI {
 type ConsumerAPI struct {
 	mono bool // should never be changed after construction
 
-	mu  sync.Mutex
+	mu sync.Mutex //
+
 	tid string
+	// will be closed on reconnection (with a new chan allocated）
+	chReconn chan struct{}
+
+	// collection change event stream for Trucks
+	tkCCES *isoevt.EventStream
+
 	svc *hbi.TCPConn
 }
 
-// get posting endpoint
-func (api *ConsumerAPI) conn() (*consumerContext, hbi.Posting) {
-	svc := api.EnsureConn()
-	return svc.HoCtx().(*consumerContext), svc.MustPoToPeer()
+// implementation details at consumer endpoint for service consuming over HBI wire
+type consumerContext struct {
+	hbi.HoContext
+
+	api *ConsumerAPI
+
+	watchingTrucks bool
+}
+
+// give types to be exposed, with typed nil pointer values to each
+func (ctx *consumerContext) TypesToExpose() []interface{} {
+	return []interface{}{
+		(*Truck)(nil),
+		(*TrucksSnapshot)(nil),
+	}
+}
+
+// Tid getter
+func (api *ConsumerAPI) Tid() string {
+	return api.tid
 }
 
 const ReconnectDelay = 3 * time.Second
@@ -59,117 +90,65 @@ func (api *ConsumerAPI) EnsureConn() *hbi.TCPConn {
 		func() {
 			defer func() {
 				if e := recover(); e != nil {
-					err = errors.New(fmt.Sprintf("Error connecting to drivers service: %+v", e))
+					err = errors.New(fmt.Sprintf("Error connecting to routes service: %+v", e))
 				}
 			}()
 			if api.svc == nil || api.svc.Hosting.Cancelled() || api.svc.Posting.Cancelled() {
 				var svc *hbi.TCPConn
-				svc, err = svcs.GetService("drivers",
+				svc, err = svcs.GetService("routes",
 					func() hbi.HoContext {
 						ctx := &consumerContext{
 							HoContext: hbi.NewHoContext(),
+							api:       api,
 						}
-						ctx.Put("api", api)
 						return ctx
 					}, // single tunnel, use tid as sticky session id, for tenant isolation
 					"", api.tid, true)
 				if err == nil {
 					api.svc = svc
+					// allocate a new reconnection channel, close existing one if present
+					chRecon := api.chReconn
+					api.chReconn = make(chan struct{})
+					if chRecon != nil {
+						close(chRecon)
+					}
 				}
 			}
 		}()
 		if err == nil {
+			if api.tkCCES != nil {
+				// consumer has subscribed to Trucks collection change event stream,
+				// make sure the connected wire has subscribed as well,
+				// Epoch event will be fired by service upon each subscription.
+				ctx := api.svc.HoCtx().(*consumerContext)
+				if !ctx.watchingTrucks {
+					po := api.svc.MustPoToPeer()
+					po.Notif(fmt.Sprintf(`
+SubscribeTrucks(%#v)
+`, api.tid))
+					ctx.watchingTrucks = true
+				}
+			}
 			return api.svc
 		}
-		glog.Errorf("Failed connecting drivers service, retrying... %+v", err)
+		glog.Errorf("Failed connecting routes service, retrying... %+v", err)
 		time.Sleep(ReconnectDelay)
 	}
 }
 
-func (api *ConsumerAPI) ListTrucks(tid string) (*TruckList, error) {
-	ctx := api.ctx
-
-	if ctx == nil {
-		// proc local service consuming
-		return ListTrucks(tid)
-	}
-
-	// remote service consuming over HBI wire
-
-	// initiate a conversation
-	co, err := ctx.MustPoToPeer().Co()
-	if err != nil {
-		return nil, err
-	}
-	defer co.Close()
-
-	// get service method result in rpc style
-	wpl, err := co.Get(fmt.Sprintf(`
-ListTrucks(%#v)
-`, tid), "&TruckList{}")
-	if err != nil {
-		return nil, err
-	}
-
-	// return result with type asserted
-	return wpl.(*TruckList), nil
-}
-
-func (api *ConsumerAPI) WatchTrucks(
-	tid string,
-	ackCre func(wp *Truck) bool,
-	ackMv func(tid string, seq int, id string, x, y float64) bool,
-	ackStop func(tid string, seq int, id string, moving bool) bool,
-) {
-	ctx := api.ctx
-
-	if ctx == nil {
-		// proc local service consuming
-		WatchTrucks(tid, ackCre, ackMv, ackStop)
-		return
-	}
-
-	// remote service consuming over HBI wire
-
-	// MustPoToPeer() will RLock, obtain before our RLock, or will deadlock
-	po := ctx.MustPoToPeer()
-
-	ctx.Lock() // WLock for proper sync
-	defer ctx.Unlock()
-
-	if ctx.WatchedTid == "" {
-		err := po.Notif(fmt.Sprintf(`
-WatchTrucks(%#v)
-`, tid))
-		if err != nil {
-			glog.Errorf("Failed watching waypoint events for tid=%s\n", tid, err)
-			// but still add watcher funcs to list by not returning here
-		} else {
-			ctx.WatchedTid = tid
-		}
-	} else if tid != ctx.WatchedTid {
-		glog.Errorf("Request to watch tid=%s while already be watching %s ?!", tid, ctx.WatchedTid)
-		return
-	}
-
-	if ackCre != nil {
-		ctx.TkCreWatchers = append(ctx.TkCreWatchers, ackCre)
-	}
-	if ackMv != nil {
-		ctx.TkMoveWatchers = append(ctx.TkMoveWatchers, ackMv)
-	}
-	if ackStop != nil {
-		ctx.TkStopWatchers = append(ctx.TkStopWatchers, ackStop)
-	}
+// get posting endpoint
+func (api *ConsumerAPI) conn() (*consumerContext, hbi.Posting) {
+	svc := api.EnsureConn()
+	return svc.HoCtx().(*consumerContext), svc.MustPoToPeer()
 }
 
 func (api *ConsumerAPI) AddTruck(tid string, x, y float64) error {
-	ctx := api.ctx
-	if ctx == nil {
+	if api.mono {
 		return AddTruck(tid, x, y)
 	}
 
-	return ctx.MustPoToPeer().Notif(fmt.Sprintf(`
+	_, po := api.conn()
+	return po.Notif(fmt.Sprintf(`
 AddTruck(%#v,%#v,%#v)
 `, tid, x, y))
 }
@@ -177,12 +156,12 @@ AddTruck(%#v,%#v,%#v)
 func (api *ConsumerAPI) MoveTruck(
 	tid string, seq int, id string, x, y float64,
 ) error {
-	ctx := api.ctx
-	if ctx == nil {
+	if api.mono {
 		return MoveTruck(tid, seq, id, x, y)
 	}
 
-	return ctx.MustPoToPeer().Notif(fmt.Sprintf(`
+	_, po := api.conn()
+	return po.Notif(fmt.Sprintf(`
 MoveTruck(%#v,%#v,%#v,%#v,%#v)
 `, tid, seq, id, x, y))
 }
@@ -190,242 +169,118 @@ MoveTruck(%#v,%#v,%#v,%#v,%#v)
 func (api *ConsumerAPI) StopTruck(
 	tid string, seq int, id string, moving bool,
 ) error {
-	ctx := api.ctx
-	if ctx == nil {
+	if api.mono {
 		return StopTruck(tid, seq, id, moving)
 	}
 
-	return ctx.MustPoToPeer().Notif(fmt.Sprintf(`
+	_, po := api.conn()
+	return po.Notif(fmt.Sprintf(`
 StopTruck(%#v,%#v,%#v,%#v)
 `, tid, seq, id, moving))
 }
 
-func (api *ConsumerAPI) DriversKickoff(tid string) error {
-	ctx := api.ctx
+func (api *ConsumerAPI) FetchTrucks() (ccn int, tkl []Truck) {
+	if api.mono {
+		tks := FetchTrucks(api.tid)
 
-	if ctx == nil {
-		// proc local service consuming
-		return DriversKickoff(tid)
-	}
-
-	// remote service consuming over HBI wire
-
-	// get service method result in rpc style
-	err := ctx.MustPoToPeer().Notif(fmt.Sprintf(`
-DriversKickoff(%#v)
-`, tid))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// implementation details at consumer endpoint for service consuming over HBI wire
-type consumerContext struct {
-	hbi.HoContext
-
-	WatchedTid     string
-	TkCreWatchers  []func(wp *Truck) bool
-	TkMoveWatchers []func(tid string, seq int, id string, x, y float64) bool
-	TkStopWatchers []func(tid string, seq int, id string, moving bool) bool
-}
-
-// give types to be exposed, with typed nil pointer values to each
-func (ctx *consumerContext) TypesToExpose() []interface{} {
-	return []interface{}{
-		(*TruckList)(nil),
-		(*Truck)(nil),
-	}
-}
-
-// a consumer side hosting method to relay wp creation notifications
-func (ctx *consumerContext) TkCreated() {
-	evtObj, err := ctx.Ho().CoRecvObj()
-	if err != nil {
-		glog.Error(err)
-		return
-	}
-	wp, ok := evtObj.(*Truck)
-	if !ok {
-		err := errors.New(fmt.Sprintf("Sent a %T to TkCreated() ?!", evtObj))
-		glog.Error(err)
+		ccn, tkl = tks.CCN, tks.Trucks
 		return
 	}
 
-	ctx.RLock() // RLock for proper sync
-	defer ctx.RUnlock()
+	_, po := api.conn()
+	co, err := po.Co()
+	if err != nil {
+		panic(err)
+	}
+	defer co.Close()
 
-	cntNils := 0
-	for i, n := 0, len(ctx.TkCreWatchers); i < n; i++ {
-		ackCre := ctx.TkCreWatchers[i]
-		if ackCre == nil {
-			// already cleared
-			cntNils++
-			continue
-		}
-		func() {
-			defer func() {
-				err := recover()
-				if err != nil {
-					glog.Error(errors.RichError(err))
-					// clear on error
-					ctx.TkCreWatchers[i] = nil
-					cntNils++
-				}
-			}()
-			if ackCre(wp) {
-				// indicated stop by returning true, clear it
-				ctx.TkCreWatchers[i] = nil
-				cntNils++
-			}
-		}()
+	result, err := co.Get(fmt.Sprintf(`
+FetchTrucks(%#v)
+`, api.tid), "&TrucksSnapshot{}")
+	if err != nil {
+		panic(err)
 	}
-	if cntNils > len(ctx.TkCreWatchers)/2 {
-		// compact the slice to drive nils out, must start a new goro, as this
-		// func currently holds a RLock, while `compactWatchers()` will WLock
-		go ctx.compactWatchers()
-	}
+	tks := result.(*TrucksSnapshot)
+
+	ccn, tkl = tks.CCN, tks.Trucks
+	return
 }
 
-// a consumer side hosting method to relay wp move notifications
-func (ctx *consumerContext) TkMoved(tid string, seq int, id string, x, y float64) {
-	ctx.RLock() // RLock for proper sync
-	defer ctx.RUnlock()
+func (api *ConsumerAPI) SubscribeTrucks(subr livecoll.Subscriber) {
+	if api.mono {
+		ensureLoadedFor(api.tid)
+		tkCollection.Subscribe(subr)
+		return
+	}
 
-	cntNils := 0
-	for i, n := 0, len(ctx.TkMoveWatchers); i < n; i++ {
-		ackMv := ctx.TkMoveWatchers[i]
-		if ackMv == nil {
-			// already cleared
-			cntNils++
-			continue
-		}
+	if api.tkCCES == nil { // quick check without sync
 		func() {
-			defer func() {
-				err := recover()
-				if err != nil {
-					glog.Error(errors.RichError(err))
-					// clear on error
-					ctx.TkMoveWatchers[i] = nil
-					cntNils++
-				}
-			}()
-			if ackMv(tid, seq, id, x, y) {
-				// indicated stop by returning true, clear it
-				ctx.TkMoveWatchers[i] = nil
-				cntNils++
+			api.mu.Lock()
+			defer api.mu.Unlock()
+
+			if api.tkCCES != nil { // final check after sync'ed
+				return
 			}
+
+			api.tkCCES = isoevt.NewStream()
 		}()
 	}
-	if cntNils > len(ctx.TkMoveWatchers)/2 {
-		// compact the slice to drive nils out, must start a new goro, as this
-		// func currently holds a RLock, while `compactWatchers()` will WLock
-		go ctx.compactWatchers()
-	}
+	// now api.tkCCES is guarranteed to not be nil
+	// consumer side event stream dispatching for Truck changes
+	livecoll.Dispatch(api.tkCCES, subr, nil)
+	// will ensure the wire subscribed as well
+	api.EnsureConn()
 }
 
-// a consumer side hosting method to relay wp move notifications
-func (ctx *consumerContext) TkStopped(tid string, seq int, id string, moving bool) {
-	ctx.RLock() // RLock for proper sync
-	defer ctx.RUnlock()
-
-	cntNils := 0
-	for i, n := 0, len(ctx.TkStopWatchers); i < n; i++ {
-		ackStop := ctx.TkStopWatchers[i]
-		if ackStop == nil {
-			// already cleared
-			cntNils++
-			continue
-		}
-		func() {
-			defer func() {
-				err := recover()
-				if err != nil {
-					glog.Error(errors.RichError(err))
-					// clear on error
-					ctx.TkStopWatchers[i] = nil
-					cntNils++
-				}
-			}()
-			if ackStop(tid, seq, id, moving) {
-				// indicated stop by returning true, clear it
-				ctx.TkStopWatchers[i] = nil
-				cntNils++
-			}
-		}()
+func (ctx *consumerContext) tkCCES() *isoevt.EventStream {
+	api := ctx.api
+	// api.tkCCES won't change once assigned non-nil, we can trust thread local cache
+	cces := api.tkCCES // fast read without sync
+	if cces == nil {   // sync'ed read on cache miss
+		api.mu.Lock()
+		cces = api.tkCCES
+		api.mu.Unlock()
 	}
-	if cntNils > len(ctx.TkStopWatchers)/2 {
-		// compact the slice to drive nils out, must start a new goro, as this
-		// func currently holds a RLock, while `compactWatchers()` will WLock
-		go ctx.compactWatchers()
+	if cces == nil {
+		panic("Consumer side tk cces not present on service event ?!")
 	}
+	return cces
 }
 
-// utility method to clear out stopped watcher funcs from watcher list
-func (ctx *consumerContext) compactWatchers() {
-	ctx.Lock() // WLock for proper sync
-	defer ctx.Unlock()
+func (ctx *consumerContext) TkEpoch(ccn int) {
+	cces := ctx.tkCCES()
+	cces.Post(livecoll.EpochEvent{ccn})
+}
 
-	// todo refactor the compact operation into a utility func,
-	// if only comes generics support from Go ...
-	var owPos int // overwrite position
+// Create
+func (ctx *consumerContext) TkCreated(ccn int) {
+	eo, err := ctx.Ho().CoRecvObj()
+	if err != nil {
+		panic(err)
+	}
+	tk := eo.(*Truck)
+	cces := ctx.tkCCES()
+	cces.Post(livecoll.CreateEvent{ccn, tk})
+}
 
-	owPos = -1
-	for s, ckPos, n := ctx.TkCreWatchers, 0, len(ctx.TkCreWatchers); ckPos < n; ckPos++ {
-		if s[ckPos] == nil {
-			if owPos < 0 {
-				owPos = ckPos
-			}
-		} else if owPos >= 0 {
-			s[owPos], s[ckPos] = s[ckPos], nil
-			for owPos++; owPos < ckPos; owPos++ {
-				if s[owPos] == nil {
-					break
-				}
-			}
-		}
+// Update
+func (ctx *consumerContext) TkUpdated(ccn int) {
+	eo, err := ctx.Ho().CoRecvObj()
+	if err != nil {
+		panic(err)
 	}
-	if owPos >= 0 {
-		ctx.TkCreWatchers = ctx.TkCreWatchers[:owPos]
-	}
+	tk := eo.(*Truck)
+	cces := ctx.tkCCES()
+	cces.Post(livecoll.UpdateEvent{ccn, tk})
+}
 
-	owPos = -1
-	for s, ckPos, n := ctx.TkMoveWatchers, 0, len(ctx.TkMoveWatchers); ckPos < n; ckPos++ {
-		if s[ckPos] == nil {
-			if owPos < 0 {
-				owPos = ckPos
-			}
-		} else if owPos >= 0 {
-			s[owPos], s[ckPos] = s[ckPos], nil
-			for owPos++; owPos < ckPos; owPos++ {
-				if s[owPos] == nil {
-					break
-				}
-			}
-		}
+// Delete
+func (ctx *consumerContext) TkDeleted(ccn int) {
+	eo, err := ctx.Ho().CoRecvObj()
+	if err != nil {
+		panic(err)
 	}
-	if owPos >= 0 {
-		ctx.TkMoveWatchers = ctx.TkMoveWatchers[:owPos]
-	}
-
-	owPos = -1
-	for s, ckPos, n := ctx.TkStopWatchers, 0, len(ctx.TkStopWatchers); ckPos < n; ckPos++ {
-		if s[ckPos] == nil {
-			if owPos < 0 {
-				owPos = ckPos
-			}
-		} else if owPos >= 0 {
-			s[owPos], s[ckPos] = s[ckPos], nil
-			for owPos++; owPos < ckPos; owPos++ {
-				if s[owPos] == nil {
-					break
-				}
-			}
-		}
-	}
-	if owPos >= 0 {
-		ctx.TkStopWatchers = ctx.TkStopWatchers[:owPos]
-	}
-
+	tk := eo.(*Truck)
+	cces := ctx.tkCCES()
+	cces.Post(livecoll.DeleteEvent{ccn, tk})
 }

@@ -3,13 +3,93 @@ package backend
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+
+	"github.com/complyue/ddgo/pkg/livecoll"
 	"github.com/complyue/ddgo/pkg/routes"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"net/http"
 )
+
+// relay live waypoint collection changes over a websocket
+type wpcChgRelay struct {
+	routesAPI *routes.ConsumerAPI // consuming api to routes service
+	wsc       *websocket.Conn     // the websocket connection
+	ccn       int                 // known change number of the live waypoint collection
+}
+
+func (wpc *wpcChgRelay) Epoch(ccn int) (stop bool) {
+	// fetch current snapshot of the whole collection
+	ccn, wpl := wpc.routesAPI.FetchWaypoints()
+
+	wpc.ccn = ccn
+
+	if e := wpc.wsc.WriteJSON(map[string]interface{}{
+		"type": "initial",
+		"wps":  wpl,
+	}); e != nil {
+		glog.Error(errors.RichError(e))
+		return true
+	}
+
+	return
+}
+
+// Created
+func (wpc *wpcChgRelay) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
+	if livecoll.IsOld(ccn, wpc.ccn) { // ignore out-dated events
+		return
+	}
+	wp := eo.(*routes.Waypoint)
+
+	wpc.ccn = ccn
+
+	if e := wpc.wsc.WriteJSON(map[string]interface{}{
+		"type": "created",
+		"wp":   wp,
+	}); e != nil {
+		glog.Error(e)
+		return true
+	}
+
+	return
+}
+
+// Updated
+func (wpc *wpcChgRelay) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
+	if livecoll.IsOld(ccn, wpc.ccn) { // ignore out-dated events
+		return
+	}
+	wp := eo.(*routes.Waypoint)
+
+	wpc.ccn = ccn
+
+	if e := wpc.wsc.WriteJSON(map[string]interface{}{
+		"type": "moved",
+		"tid":  wpc.routesAPI.Tid(), "seq": wp.Seq, "_id": wp.Id, "x": wp.X, "y": wp.Y,
+	}); e != nil {
+		glog.Error(e)
+		return true
+	}
+
+	return
+}
+
+// Deleted
+func (wpc *wpcChgRelay) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
+	if livecoll.IsOld(ccn, wpc.ccn) { // ignore out-dated events
+		return
+	}
+	// wp := eo.(*routes.Waypoint)
+
+	wpc.ccn = ccn
+
+	// todo notify delete event
+
+	return
+}
 
 func showWaypoints(w http.ResponseWriter, r *http.Request) {
 	var err error
@@ -41,41 +121,11 @@ func showWaypoints(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	tid := params["tid"]
 
-	routesApi, err := GetRoutesService(tid)
+	routesAPI, err := GetRoutesService(tid)
 	if err != nil {
 		panic(err)
 	}
-
-	wpl, err := routesApi.ListWaypoints(tid)
-	if err != nil {
-		panic(err)
-	}
-	if e := wsc.WriteJSON(map[string]interface{}{
-		"type": "initial",
-		"wps":  wpl.Waypoints,
-	}); e != nil {
-		panic(errors.RichError(e))
-	}
-
-	routesApi.WatchWaypoints(tid, func(wp *routes.Waypoint) (stop bool) {
-		if e := wsc.WriteJSON(map[string]interface{}{
-			"type": "created",
-			"wp":   wp,
-		}); e != nil {
-			glog.Error(e)
-			return true
-		}
-		return false
-	}, func(tid string, seq int, id string, x, y float64) (stop bool) {
-		if e := wsc.WriteJSON(map[string]interface{}{
-			"type": "moved",
-			"tid":  tid, "seq": seq, "_id": id, "x": x, "y": y,
-		}); e != nil {
-			glog.Error(e)
-			return true
-		}
-		return false
-	})
+	routesAPI.SubscribeWaypoints(&wpcChgRelay{routesAPI: routesAPI, wsc: wsc})
 }
 
 func addWaypoint(w http.ResponseWriter, r *http.Request) {

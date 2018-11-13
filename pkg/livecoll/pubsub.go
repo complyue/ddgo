@@ -19,6 +19,17 @@ type Publisher interface {
 	FetchAll() (ccn int, members []Member)
 }
 
+func IsOld(ccn int, thanCCN int) bool {
+	// CCN is monotonic incremental, but may overflow/wraparound after many changes occurred
+	if (ccn >= 0 && thanCCN >= 0) || (ccn < 0 && thanCCN < 0) {
+		// same sign, assuming NO overflow/wraparound has occurred
+		return ccn < thanCCN
+	}
+	// different sign, assuming overflow/wraparound has occurred
+	// todo figure out logic to handle this case
+	panic("int overflow of collection change number has to be handled!")
+}
+
 func Dispatch(ccES *isoevt.EventStream, subr Subscriber, watchingCallback func() bool) {
 	ccES.Watch(func(evt interface{}) bool {
 		switch evo := evt.(type) {

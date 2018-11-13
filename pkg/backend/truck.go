@@ -3,14 +3,101 @@ package backend
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+
 	"github.com/complyue/ddgo/pkg/drivers"
+	"github.com/complyue/ddgo/pkg/livecoll"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"net/http"
-	"sync"
 )
+
+// relay live truck collection changes over a websocket
+type tkcChgRelay struct {
+	driversAPI *drivers.ConsumerAPI // consuming api to drivers service
+	wsc        *websocket.Conn      // the websocket connection
+	ccn        int                  // known change number of the live truck collection
+}
+
+func (tkc *tkcChgRelay) Epoch(ccn int) (stop bool) {
+	// fetch current snapshot of the whole collection
+	ccn, tkl := tkc.driversAPI.FetchTrucks()
+
+	tkc.ccn = ccn
+
+	if e := tkc.wsc.WriteJSON(map[string]interface{}{
+		"type":   "initial",
+		"trucks": tkl,
+	}); e != nil {
+		glog.Error(errors.RichError(e))
+		return true
+	}
+
+	return
+}
+
+// Created
+func (tkc *tkcChgRelay) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
+	if livecoll.IsOld(ccn, tkc.ccn) { // ignore out-dated events
+		return
+	}
+	tk := eo.(*drivers.Truck)
+
+	tkc.ccn = ccn
+
+	if e := tkc.wsc.WriteJSON(map[string]interface{}{
+		"type":  "created",
+		"truck": tk,
+	}); e != nil {
+		glog.Error(e)
+		return true
+	}
+
+	return
+}
+
+// Updated
+func (tkc *tkcChgRelay) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
+	if livecoll.IsOld(ccn, tkc.ccn) { // ignore out-dated events
+		return
+	}
+	tk := eo.(*drivers.Truck)
+
+	tkc.ccn = ccn
+
+	// TODO distinguish move/stop
+	if e := tkc.wsc.WriteJSON(map[string]interface{}{
+		"type": "moved",
+		"tid":  tkc.driversAPI.Tid(), "seq": tk.Seq, "_id": tk.Id, "x": tk.X, "y": tk.Y,
+	}); e != nil {
+		glog.Error(e)
+		return true
+	}
+	if e := tkc.wsc.WriteJSON(map[string]interface{}{
+		"type": "stopped",
+		"tid":  tkc.driversAPI.Tid(), "seq": tk.Seq, "_id": tk.Id, "moving": tk.Moving,
+	}); e != nil {
+		glog.Error(e)
+		return true
+	}
+
+	return
+}
+
+// Deleted
+func (tkc *tkcChgRelay) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
+	if livecoll.IsOld(ccn, tkc.ccn) { // ignore out-dated events
+		return
+	}
+	// tk := eo.(*drivers.Truck)
+
+	tkc.ccn = ccn
+
+	// todo notify delete event
+
+	return
+}
 
 func showTrucks(w http.ResponseWriter, r *http.Request) {
 	var err error
@@ -42,61 +129,14 @@ func showTrucks(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	tid := params["tid"]
 
-	driversApi, err := GetDriversService(tid)
+	driversAPI, err := GetDriversService(tid)
 	if err != nil {
 		panic(err)
 	}
-
-	tkl, err := driversApi.ListTrucks(tid)
-	if err != nil {
-		panic(err)
-	}
-	if e := wsc.WriteJSON(map[string]interface{}{
-		"type":   "initial",
-		"trucks": tkl.Trucks,
-	}); e != nil {
-		panic(errors.RichError(e))
-	}
-
-	var muWsc sync.Mutex
-
-	driversApi.WatchTrucks(tid, func(tk *drivers.Truck) (stop bool) {
-		muWsc.Lock()
-		defer muWsc.Unlock()
-		if e := wsc.WriteJSON(map[string]interface{}{
-			"type":  "created",
-			"truck": tk,
-		}); e != nil {
-			glog.Error(e)
-			return true
-		}
-		return false
-	}, func(tid string, seq int, id string, x, y float64) (stop bool) {
-		muWsc.Lock()
-		defer muWsc.Unlock()
-		if e := wsc.WriteJSON(map[string]interface{}{
-			"type": "moved",
-			"tid":  tid, "seq": seq, "_id": id, "x": x, "y": y,
-		}); e != nil {
-			glog.Error(e)
-			return true
-		}
-		return false
-	}, func(tid string, seq int, id string, moving bool) (stop bool) {
-		muWsc.Lock()
-		defer muWsc.Unlock()
-		if e := wsc.WriteJSON(map[string]interface{}{
-			"type": "stopped",
-			"tid":  tid, "seq": seq, "_id": id, "moving": moving,
-		}); e != nil {
-			glog.Error(e)
-			return true
-		}
-		return false
-	})
+	driversAPI.SubscribeTrucks(&tkcChgRelay{driversAPI: driversAPI, wsc: wsc})
 
 	// kickoff drivers team TODO find a better place to do this
-	driversApi.DriversKickoff(tid)
+	driversAPI.DriversKickoff(tid)
 
 }
 

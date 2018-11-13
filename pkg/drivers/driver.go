@@ -1,19 +1,133 @@
 package drivers
 
 import (
-	"github.com/complyue/ddgo/pkg/routes"
-	"github.com/complyue/hbigo/pkg/errors"
-	"github.com/golang/glog"
+	"fmt"
 	"math"
 	"sync"
 	"time"
+
+	"github.com/complyue/ddgo/pkg/livecoll"
+	"github.com/complyue/ddgo/pkg/routes"
+	"github.com/complyue/hbigo/pkg/errors"
+	"github.com/golang/glog"
 )
 
 var (
 	stuckTid string
-	wps      []routes.Waypoint
-	wpBySeq  map[int]*routes.Waypoint
+	mu       sync.Mutex
+
+	wpcLive *wpcCache
 )
+
+type wpcCache struct {
+	routesAPI *routes.ConsumerAPI      // consuming api to routes service
+	ccn       int                      // known change number of the live waypoint collection
+	wps       []routes.Waypoint        // local cached waypoint values
+	wpBySeq   map[int]*routes.Waypoint // map seq to pointer to waypoints within the `wps` slice
+	mu        sync.Mutex               //
+}
+
+func (wpc *wpcCache) Epoch(ccn int) (stop bool) {
+	// fetch current snapshot of the whole collection
+	ccn, wpl := wpc.routesAPI.FetchWaypoints()
+
+	// populate local cache data for the live waypoint collection
+	wpc.mu.Lock()
+	defer wpc.mu.Unlock()
+	wpc.wps = wpl
+	wpc.wpBySeq = make(map[int]*routes.Waypoint)
+	for i := range wpl {
+		wpc.wpBySeq[wpl[i].Seq] = &wpl[i]
+	}
+	wpc.ccn = ccn
+
+	return
+}
+
+// Created
+func (wpc *wpcCache) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
+	if livecoll.IsOld(ccn, wpc.ccn) { // ignore out-dated events
+		return
+	}
+	wp := eo.(*routes.Waypoint)
+
+	wpc.mu.Lock()
+	defer wpc.mu.Unlock()
+	i := len(wpc.wps)
+	wpc.wps = append(wpc.wps, *wp)
+	wpc.wpBySeq[wp.Seq] = &wpc.wps[i]
+	wpc.ccn = ccn
+
+	return
+}
+
+// Updated
+func (wpc *wpcCache) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
+	if livecoll.IsOld(ccn, wpc.ccn) { // ignore out-dated events
+		return
+	}
+	wp := eo.(*routes.Waypoint)
+
+	wpc.mu.Lock()
+	defer wpc.mu.Unlock()
+	*wpc.wpBySeq[wp.Seq] = *wp
+	wpc.ccn = ccn
+
+	return
+}
+
+// Deleted
+func (wpc *wpcCache) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
+	if livecoll.IsOld(ccn, wpc.ccn) { // ignore out-dated events
+		return
+	}
+	wp := eo.(*routes.Waypoint)
+
+	wpc.mu.Lock()
+	defer wpc.mu.Unlock()
+	// todo remove wp from the slice `wpc.wps`
+	delete(wpc.wpBySeq, wp.Seq)
+	wpc.ccn = ccn
+
+	return
+}
+
+type tkcReact struct {
+	// subscribe to trucks live collection, which managed by the local drivers service
+}
+
+func (tkc *tkcReact) Epoch(ccn int) (stop bool) {
+	// nop
+	return
+}
+
+// Created
+func (tkc *tkcReact) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
+	tk := eo.(*Truck)
+
+	// start a driving immediate when a truck is created,
+	// just for demonstration
+	go NewDriving(tk).start()
+
+	return
+}
+
+// Updated
+func (tkc *tkcReact) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
+	tk := eo.(*Truck)
+
+	// notify the driving goroutine when the truck is told to move or stop
+	dr := drivingCourseByTruckSeq[tk.Seq]
+	dr.toldToMove(tk.Moving)
+
+	return
+}
+
+// Deleted
+func (tkc *tkcReact) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
+	// todo process delete event
+	return
+}
 
 func DriversKickoff(tid string) error {
 
@@ -27,67 +141,47 @@ func DriversKickoff(tid string) error {
 
 	// one time kickoff for the specified tid
 
-	// load & watch waypoints
 	routesAPI, err := GetRoutesService(tid)
 	if err != nil {
 		return err
 	}
-	wpl, err := routesAPI.ListWaypoints(tid)
-	if err != nil {
-		return err
+
+	// create live cache of waypoint collection subscribed from routes service
+	wpcLive = &wpcCache{
+		routesAPI: routesAPI,
+		wpBySeq:   make(map[int]*routes.Waypoint),
 	}
-	wps = make([]routes.Waypoint, len(wpl.Waypoints), 2*len(wpl.Waypoints))
-	wpBySeq = make(map[int]*routes.Waypoint, 2*len(wpl.Waypoints))
-	for i := range wpl.Waypoints {
-		wps[i] = wpl.Waypoints[i]
-		wpBySeq[wps[i].Seq] = &wps[i]
-	}
-	routesAPI.WatchWaypoints(tid, func(wp *routes.Waypoint) (stop bool) {
-		wps = append(wps, *wp)
-		wpBySeq[wp.Seq] = &wps[len(wps)-1]
-		return
-	}, func(tid string, seq int, id string, x, y float64) (stop bool) {
-		wp := wpBySeq[seq]
-		wp.X, wp.Y = x, y
-		return
-	})
+	routesAPI.SubscribeWaypoints(wpcLive)
 
-	// manage drivers
-	WatchTrucks(tid,
-
-		// start a driving immediate when a truck is created,
-		// just for demonstration
-		func(truck *Truck) (stop bool) {
-			go NewDriving(truck).start()
-			return
-		},
-
-		// the truck pointer points to the authoritative truck data object,
-		// which is proc local, it always has the correct location info,
-		// so we don't need to watch the move event
-		nil,
-
-		// notify the driving goroutine when the truck is told to move or stop
-		func(tid string, seq int, id string, moving bool) (stop bool) {
-			dr := drivingCourseByTruckSeq[seq]
-			dr.toldToMove(moving)
-			return
-		},
-	)
+	tkCollection.Subscribe(&tkcReact{})
 
 	// list all trucks existing now and start a driving course for each one
-	tkl, err := ListTrucks(tid)
-	if err != nil {
-		// todo cleanup
-		return err
-	}
-	for i := range tkl.Trucks {
-		truck := &tkl.Trucks[i]
-		go NewDriving(truck).start()
+	_, tkl := tkCollection.FetchAll()
+	for _, tko := range tkl {
+		tk := tko.(*Truck)
+		go NewDriving(tk).start()
 	}
 
 	stuckTid = tid
 	return nil
+}
+
+func (api *ConsumerAPI) DriversKickoff(tid string) error {
+	if api.mono {
+		return DriversKickoff(tid)
+	}
+
+	_, po := api.conn()
+	return po.Notif(fmt.Sprintf(`
+DriversKickoff(%#v)
+`, tid))
+}
+
+func (ctx *serviceContext) DriversKickoff(tid string) {
+	err := DriversKickoff(tid)
+	if err != nil {
+		panic(err)
+	}
 }
 
 // TODO `Driving` should be a relation between a truck and a user, yet persisted
@@ -143,6 +237,8 @@ func (dr *Driving) start() {
 	)
 
 	for dr.waitToldBeMoving() {
+
+		wps := wpcLive.wps
 
 		if len(wps) < 1 {
 			glog.Warning("No waypoint yet.")

@@ -3,13 +3,13 @@ package drivers
 
 import (
 	"fmt"
-	"github.com/complyue/ddgo/pkg/svcs"
-	"github.com/complyue/hbigo"
-	"github.com/complyue/hbigo/pkg/errors"
-	"github.com/complyue/hbigo/pkg/svcpool"
-	"github.com/golang/glog"
 	"net"
 	"os"
+
+	"github.com/complyue/ddgo/pkg/svcs"
+	"github.com/complyue/hbigo"
+	"github.com/complyue/hbigo/pkg/svcpool"
+	"github.com/golang/glog"
 )
 
 // construct a service hosting context for serving over HBI wires
@@ -27,99 +27,8 @@ type serviceContext struct {
 // give types to be exposed, with typed nil pointer values to each
 func (ctx *serviceContext) TypesToExpose() []interface{} {
 	return []interface{}{
-		(*TruckList)(nil),
 		(*Truck)(nil),
 	}
-}
-
-// this service method has rpc style, with err-out converted to panic,
-// which will induce forceful disconnection
-func (ctx *serviceContext) ListTrucks(tid string) *TruckList {
-	wpl, err := ListTrucks(tid)
-	if err != nil {
-		panic(err)
-	}
-	return wpl
-}
-
-// this service method to subscribe waypoint events per the specified tid
-func (ctx *serviceContext) WatchTrucks(tid string) {
-	WatchTrucks(tid, func(wp *Truck) (stop bool) {
-		defer func() {
-			if err := recover(); err != nil {
-				stop = true
-				glog.Error(errors.RichError(err))
-			}
-		}()
-		po := ctx.MustPoToPeer()
-		if po.Cancelled() {
-			return true
-		}
-		po.NotifBSON(`
-TkCreated()
-`, wp, "&Truck{}")
-		return
-	}, func(tid string, seq int, id string, x, y float64) (stop bool) {
-		defer func() {
-			if err := recover(); err != nil {
-				stop = true
-				glog.Error(errors.RichError(err))
-			}
-		}()
-		po := ctx.MustPoToPeer()
-		if po.Cancelled() {
-			return true
-		}
-		if err := po.Notif(fmt.Sprintf(`
-TkMoved(%#v,%#v,%#v,%#v,%#v)
-`, tid, seq, id, x, y)); err != nil {
-			return true
-		}
-		return
-	}, func(tid string, seq int, id string, moving bool) (stop bool) {
-		defer func() {
-			if err := recover(); err != nil {
-				stop = true
-				glog.Error(errors.RichError(err))
-			}
-		}()
-		po := ctx.MustPoToPeer()
-		if po.Cancelled() {
-			return true
-		}
-		if err := po.Notif(fmt.Sprintf(`
-TkStopped(%#v,%#v,%#v,%#v)
-`, tid, seq, id, moving)); err != nil {
-			return true
-		}
-		return
-	})
-}
-
-// this service method has async style, successful result will be published
-// as an event asynchronously
-func (ctx *serviceContext) AddTruck(tid string, x, y float64) error {
-	return AddTruck(tid, x, y)
-}
-
-// this service method has async style, successful result will be published
-// as an event asynchronously
-func (ctx *serviceContext) MoveTruck(
-	tid string, seq int, id string, x, y float64,
-) error {
-	return MoveTruck(tid, seq, id, x, y)
-}
-
-// this service method has async style, successful result will be published
-// as an event asynchronously
-func (ctx *serviceContext) StopTruck(
-	tid string, seq int, id string, moving bool,
-) error {
-	return StopTruck(tid, seq, id, moving)
-}
-
-func (ctx *serviceContext) DriversKickoff(tid string) error {
-	return DriversKickoff(tid)
 }
 
 func ServeSolo() error {

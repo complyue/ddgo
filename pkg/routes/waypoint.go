@@ -2,13 +2,14 @@ package routes
 
 import (
 	"fmt"
+	"io"
+
 	"github.com/complyue/ddgo/pkg/dbc"
 	"github.com/complyue/ddgo/pkg/livecoll"
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/golang/glog"
-	"io"
 )
 
 func coll() *mgo.Collection {
@@ -56,19 +57,19 @@ func (wp *Waypoint) Format(s fmt.State, verb rune) {
 }
 
 var (
-	collRoot *WaypointCollection
+	wpCollection *WaypointCollection
 )
 
 func ensureLoadedFor(tid string) error {
 	// sync is not strictly necessary for load, as worst scenario is to load more than once,
 	// while correctness not violated.
-	if collRoot != nil {
+	if wpCollection != nil {
 		// already have a full list loaded
-		if tid != collRoot.Tid {
+		if tid != wpCollection.Tid {
 			// should be coz of malfunctioning of service router, log and deny service
 			err := errors.New(fmt.Sprintf(
 				"Waypoint service already stuck to [%s], not serving [%s]!",
-				collRoot.Tid, tid,
+				wpCollection.Tid, tid,
 			))
 			glog.Error(err)
 			return err
@@ -88,9 +89,9 @@ func ensureLoadedFor(tid string) error {
 		optimalSize = 200
 	}
 	var hk livecoll.HouseKeeper
-	if collRoot != nil {
+	if wpCollection != nil {
 		// inherite subscribers by reusing the housekeeper, if already loaded & subscribed
-		hk = collRoot.HouseKeeper
+		hk = wpCollection.HouseKeeper
 	} else {
 		hk = livecoll.NewHouseKeeper()
 	}
@@ -101,13 +102,14 @@ func ensureLoadedFor(tid string) error {
 	}
 	memberList := make([]livecoll.Member, len(loadingList))
 	for i, wpo := range loadingList {
-		// the loop var is a copy of Waypoint struct, take its pointer to be loaded
-		// (held from garbage collection) by housekeeper
-		memberList[i] = &wpo
-		loadingColl.bySeq[wpo.Seq] = &wpo
+		// the loop var is a fixed value variable of Waypoint struct,
+		// make a local copy and take pointer for collection storage.
+		wpCopy := wpo
+		memberList[i] = &wpCopy
+		loadingColl.bySeq[wpo.Seq] = &wpCopy
 	}
 	hk.Load(memberList)
-	collRoot = loadingColl // only set globally after successfully loaded at all
+	wpCollection = loadingColl // only set globally after successfully loaded at all
 	return nil
 }
 
@@ -118,15 +120,13 @@ type WaypointsSnapshot struct {
 	Waypoints []Waypoint
 }
 
-// this service method has rpc style, with err-out converted to panic,
-// which will induce forceful disconnection
-func (ctx *serviceContext) FetchWaypoints(tid string) *WaypointsSnapshot {
+func FetchWaypoints(tid string) *WaypointsSnapshot {
 	if err := ensureLoadedFor(tid); err != nil {
 		// err has been logged
 		panic(err)
 	}
 	// todo make FetchAll return values instead of pointers, to avoid dirty value reads
-	ccn, wps := collRoot.FetchAll()
+	ccn, wps := wpCollection.FetchAll()
 	snap := &WaypointsSnapshot{
 		Tid:       tid,
 		CCN:       ccn,
@@ -136,6 +136,12 @@ func (ctx *serviceContext) FetchWaypoints(tid string) *WaypointsSnapshot {
 		snap.Waypoints[i] = *(wp.(*Waypoint))
 	}
 	return snap
+}
+
+// this service method has rpc style, with err-out converted to panic,
+// which will induce forceful disconnection
+func (ctx *serviceContext) FetchWaypoints(tid string) *WaypointsSnapshot {
+	return FetchWaypoints(tid)
 }
 
 type wpDelegate struct {
@@ -148,7 +154,7 @@ func (ctx *serviceContext) SubscribeWaypoints(tid string) {
 	}
 
 	dele := wpDelegate{ctx}
-	collRoot.Subscribe(dele)
+	wpCollection.Subscribe(dele)
 }
 
 func (dele wpDelegate) Epoch(ccn int) (stop bool) {
@@ -223,7 +229,7 @@ func AddWaypoint(tid string, x, y float64) error {
 		return err
 	}
 
-	newSeq := 1 + len(collRoot.bySeq) + 1   // assign tenant wide unique seq
+	newSeq := 1 + len(wpCollection.bySeq)   // assign tenant wide unique seq
 	newLabel := fmt.Sprintf("#%d#", newSeq) // label with some rules
 	waypoint := wpForDb{tid, Waypoint{
 		Id:  bson.NewObjectId(),
@@ -238,8 +244,8 @@ func AddWaypoint(tid string, x, y float64) error {
 
 	// add to in-memory collection and index, after successful db insert
 	wp := &waypoint.Waypoint
-	collRoot.bySeq[waypoint.Seq] = wp
-	collRoot.Create(wp)
+	wpCollection.bySeq[waypoint.Seq] = wp
+	wpCollection.Create(wp)
 
 	return nil
 }
@@ -255,7 +261,7 @@ func MoveWaypoint(tid string, seq int, id string, x, y float64) error {
 		return err
 	}
 
-	mwp, ok := collRoot.Read(bson.ObjectIdHex(id))
+	mwp, ok := wpCollection.Read(bson.ObjectIdHex(id))
 	if !ok || mwp == nil {
 		return errors.New(fmt.Sprintf("Waypoint seq=[%v], id=[%s] not exists for tid=%s", seq, id, tid))
 	}
@@ -276,7 +282,7 @@ func MoveWaypoint(tid string, seq int, id string, x, y float64) error {
 	// update in-memory value, after successful db update
 	wp.X, wp.Y = x, y
 
-	collRoot.Update(wp)
+	wpCollection.Update(wp)
 
 	return nil
 }
