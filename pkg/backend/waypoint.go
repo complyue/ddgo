@@ -24,6 +24,7 @@ func (wpc *wpcChgRelay) reload() (stop bool) {
 	// fetch current snapshot of the whole collection
 	ccn, wpl := wpc.routesAPI.FetchWaypoints()
 
+	glog.V(1).Infof(" * wpc reloaded %v -> %v", wpc.ccn, ccn)
 	wpc.ccn = ccn
 
 	if e := wpc.wsc.WriteJSON(map[string]interface{}{
@@ -38,6 +39,7 @@ func (wpc *wpcChgRelay) reload() (stop bool) {
 }
 
 func (wpc *wpcChgRelay) Epoch(ccn int) (stop bool) {
+	glog.V(1).Infof(" ** Reloading wpc due to epoch CCN %v -> %v", wpc.ccn, ccn)
 	return wpc.reload()
 }
 
@@ -48,6 +50,7 @@ func (wpc *wpcChgRelay) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
 		return
 	} else if ccnDistance > 1 {
 		// event ccn is ahead of locally known ccn, reload
+		glog.V(1).Infof(" ** Reloading wpc due to CCN changed %v -> %v", wpc.ccn, ccn)
 		return wpc.reload()
 	}
 	wp := eo.(*routes.Waypoint)
@@ -72,6 +75,7 @@ func (wpc *wpcChgRelay) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 		return
 	} else if ccnDistance > 1 {
 		// event ccn is ahead of locally known ccn, reload
+		glog.V(1).Infof(" ** Reloading wpc due to CCN changed %v -> %v", wpc.ccn, ccn)
 		return wpc.reload()
 	}
 	wp := eo.(*routes.Waypoint)
@@ -96,6 +100,7 @@ func (wpc *wpcChgRelay) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
 		return
 	} else if ccnDistance > 1 {
 		// event ccn is ahead of locally known ccn, reload
+		glog.V(1).Infof(" ** Reloading wpc due to CCN changed %v -> %v", wpc.ccn, ccn)
 		return wpc.reload()
 	}
 	// wp := eo.(*routes.Waypoint)
@@ -150,7 +155,7 @@ func showWaypoints(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		for {
 			var msgIn map[string]interface{}
-			if err := wsc.ReadJSON(msgIn); err != nil {
+			if err := wsc.ReadJSON(&msgIn); err != nil {
 				glog.Errorf("WS error: %+v", err)
 				return
 			}

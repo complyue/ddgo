@@ -26,8 +26,10 @@
             if (ws !== window.wpWatcher) {
                 return; // disarmed
             }
-            ws.send('{}');
             setTimeout(keepAlive, 3000);
+            if (WebSocket.OPEN === ws.readyState) {
+                ws.send('{}');
+            }
         })()
         ws.onopen = function () {
         };
@@ -78,6 +80,7 @@
                 let { tid, seq, _id, x, y } = result;
                 // show the movement use a straight line path.
                 let wp = wpById[_id];
+                wp.finish();
                 wp.animate({ left: x, top: y });
 
             } else {
@@ -119,8 +122,10 @@
             if (ws !== window.truckWatcher) {
                 return; // disarmed
             }
-            ws.send('{}');
             setTimeout(keepAlive, 3000);
+            if (WebSocket.OPEN === ws.readyState) {
+                ws.send('{}');
+            }
         })()
         ws.onopen = function () {
         };
@@ -171,6 +176,7 @@
                 let { _id, x, y } = result;
                 // show the movement use a straight line path.
                 let truck = truckById[_id];
+                truck.finish();
                 truck.animate({ left: x, top: y });
 
             } else if ('stopped' === result.type) {

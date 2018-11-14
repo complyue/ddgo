@@ -43,6 +43,7 @@ func (wpc *wpcCache) reload() {
 }
 
 func (wpc *wpcCache) Epoch(ccn int) (stop bool) {
+	glog.V(1).Infof(" ** Reloading wpc due to epoch CCN %v -> %v", wpc.ccn, ccn)
 	wpc.reload()
 	return
 }
@@ -54,6 +55,7 @@ func (wpc *wpcCache) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
 		return
 	} else if ccnDistance > 1 {
 		// event ccn is ahead of locally known ccn, reload
+		glog.V(1).Infof(" ** Reloading wpc due to CCN changed %v -> %v", wpc.ccn, ccn)
 		wpc.reload()
 	}
 	wp := eo.(*routes.Waypoint)
@@ -75,6 +77,7 @@ func (wpc *wpcCache) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 		return
 	} else if ccnDistance > 1 {
 		// event ccn is ahead of locally known ccn, reload
+		glog.V(1).Infof(" ** Reloading wpc due to CCN changed %v -> %v", wpc.ccn, ccn)
 		wpc.reload()
 	}
 	wp := eo.(*routes.Waypoint)
@@ -94,6 +97,7 @@ func (wpc *wpcCache) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
 		return
 	} else if ccnDistance > 1 {
 		// event ccn is ahead of locally known ccn, reload
+		glog.V(1).Infof(" ** Reloading wpc due to CCN changed %v -> %v", wpc.ccn, ccn)
 		wpc.reload()
 	}
 	wp := eo.(*routes.Waypoint)
@@ -133,6 +137,9 @@ func (tkc *tkcReact) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 
 	// notify the driving goroutine when the truck is told to move or stop
 	dr := drivingCourseByTruckSeq[tk.Seq]
+	if tk.Moving != dr.moving {
+		glog.V(1).Infof(" * Truck %v told moving to be [%v].", tk, tk.Moving)
+	}
 	dr.toldToMove(tk.Moving)
 
 	return
@@ -151,10 +158,12 @@ func DriversKickoff(tid string) error {
 			return errors.Errorf("Drivers team already stuck to [%s], not serving [%s]!", stuckTid, tid)
 		}
 		// kickoff only once
+		glog.Warning("Repeated kicking-off of drivers ignored.")
 		return nil
 	}
 
 	// one time kickoff for the specified tid
+	glog.V(1).Infof("Kicking drivers for tid=%v", tid)
 
 	routesAPI, err := GetRoutesService(tid)
 	if err != nil {
@@ -172,8 +181,10 @@ func DriversKickoff(tid string) error {
 
 	// list all trucks existing now and start a driving course for each one
 	_, tkl := tkCollection.FetchAll()
+	glog.V(1).Infof("Start driving %v trucks ...", len(tkl))
 	for _, tko := range tkl {
 		tk := tko.(*Truck)
+		glog.V(1).Infof("Start driving truck %v ...", tk)
 		go NewDriving(tk).start()
 	}
 
@@ -251,6 +262,8 @@ func (dr *Driving) start() {
 		wp  *routes.Waypoint
 	)
 
+	glog.V(1).Infof("Driving truck %v now.", dr.truck)
+
 	for dr.waitToldBeMoving() {
 
 		wpcLive.routesAPI.EnsureConn()
@@ -262,7 +275,10 @@ func (dr *Driving) start() {
 			continue
 		}
 
+		// todo sync in reading x,y so draged-to location not overwriten by thread local cache
 		tx, ty := dr.truck.X, dr.truck.Y
+
+		glog.V(2).Infof(" * Stepping truck %v.", dr.truck)
 
 		if wpi >= len(wps) {
 			wpi = 0

@@ -24,6 +24,7 @@ func (tkc *tkcChgRelay) reload() bool {
 	// fetch current snapshot of the whole collection
 	ccn, tkl := tkc.driversAPI.FetchTrucks()
 
+	glog.V(1).Infof(" * tkc reloaded %v -> %v", tkc.ccn, ccn)
 	tkc.ccn = ccn
 
 	if e := tkc.wsc.WriteJSON(map[string]interface{}{
@@ -38,6 +39,7 @@ func (tkc *tkcChgRelay) reload() bool {
 }
 
 func (tkc *tkcChgRelay) Epoch(ccn int) (stop bool) {
+	glog.V(1).Infof(" ** Reloading tkc due to epoch CCN %v -> %v", tkc.ccn, ccn)
 	return tkc.reload()
 }
 
@@ -48,6 +50,7 @@ func (tkc *tkcChgRelay) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
 		return
 	} else if ccnDistance > 1 {
 		// event ccn is ahead of locally known ccn, reload
+		glog.V(1).Infof(" ** Reloading tkc due to epoch CCN %v -> %v", tkc.ccn, ccn)
 		return tkc.reload()
 	}
 	tk := eo.(*drivers.Truck)
@@ -72,6 +75,7 @@ func (tkc *tkcChgRelay) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 		return
 	} else if ccnDistance > 1 {
 		// event ccn is ahead of locally known ccn, reload
+		glog.V(1).Infof(" ** Reloading tkc due to epoch CCN %v -> %v", tkc.ccn, ccn)
 		return tkc.reload()
 	}
 	tk := eo.(*drivers.Truck)
@@ -104,6 +108,7 @@ func (tkc *tkcChgRelay) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
 		return
 	} else if ccnDistance > 1 {
 		// event ccn is ahead of locally known ccn, reload
+		glog.V(1).Infof(" ** Reloading tkc due to epoch CCN %v -> %v", tkc.ccn, ccn)
 		return tkc.reload()
 	}
 	// tk := eo.(*drivers.Truck)
@@ -161,7 +166,7 @@ func showTrucks(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		for {
 			var msgIn map[string]interface{}
-			if err := wsc.ReadJSON(msgIn); err != nil {
+			if err := wsc.ReadJSON(&msgIn); err != nil {
 				glog.Errorf("WS error: %+v", err)
 				return
 			}
