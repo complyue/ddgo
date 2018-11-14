@@ -20,7 +20,7 @@ type tkcChgRelay struct {
 	ccn        int                  // known change number of the live truck collection
 }
 
-func (tkc *tkcChgRelay) Epoch(ccn int) (stop bool) {
+func (tkc *tkcChgRelay) reload() bool {
 	// fetch current snapshot of the whole collection
 	ccn, tkl := tkc.driversAPI.FetchTrucks()
 
@@ -34,13 +34,21 @@ func (tkc *tkcChgRelay) Epoch(ccn int) (stop bool) {
 		return true
 	}
 
-	return
+	return false
+}
+
+func (tkc *tkcChgRelay) Epoch(ccn int) (stop bool) {
+	return tkc.reload()
 }
 
 // Created
 func (tkc *tkcChgRelay) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
-	if livecoll.IsOld(ccn, tkc.ccn) { // ignore out-dated events
+	if ccnDistance := livecoll.ChgDistance(ccn, tkc.ccn); ccnDistance <= 0 {
+		// ignore out-dated events
 		return
+	} else if ccnDistance > 1 {
+		// event ccn is ahead of locally known ccn, reload
+		return tkc.reload()
 	}
 	tk := eo.(*drivers.Truck)
 
@@ -59,8 +67,12 @@ func (tkc *tkcChgRelay) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
 
 // Updated
 func (tkc *tkcChgRelay) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
-	if livecoll.IsOld(ccn, tkc.ccn) { // ignore out-dated events
+	if ccnDistance := livecoll.ChgDistance(ccn, tkc.ccn); ccnDistance <= 0 {
+		// ignore out-dated events
 		return
+	} else if ccnDistance > 1 {
+		// event ccn is ahead of locally known ccn, reload
+		return tkc.reload()
 	}
 	tk := eo.(*drivers.Truck)
 
@@ -87,8 +99,12 @@ func (tkc *tkcChgRelay) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 
 // Deleted
 func (tkc *tkcChgRelay) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
-	if livecoll.IsOld(ccn, tkc.ccn) { // ignore out-dated events
+	if ccnDistance := livecoll.ChgDistance(ccn, tkc.ccn); ccnDistance <= 0 {
+		// ignore out-dated events
 		return
+	} else if ccnDistance > 1 {
+		// event ccn is ahead of locally known ccn, reload
+		return tkc.reload()
 	}
 	// tk := eo.(*drivers.Truck)
 
@@ -133,10 +149,30 @@ func showTrucks(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	driversAPI.SubscribeTrucks(&tkcChgRelay{driversAPI: driversAPI, wsc: wsc})
+	subr := &tkcChgRelay{
+		driversAPI: driversAPI, wsc: wsc, ccn: 0,
+	}
+	driversAPI.SubscribeTrucks(subr)
+	subr.reload()
 
 	// kickoff drivers team TODO find a better place to do this
 	driversAPI.DriversKickoff(tid)
+
+	go func() {
+		for {
+			var msgIn map[string]interface{}
+			if err := wsc.ReadJSON(msgIn); err != nil {
+				glog.Errorf("WS error: %+v", err)
+				return
+			}
+			if len(msgIn) <= 0 {
+				// keep alive
+				driversAPI.EnsureConn()
+			} else {
+				// todo other ops
+			}
+		}
+	}()
 
 }
 

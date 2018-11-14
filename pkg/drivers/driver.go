@@ -27,7 +27,7 @@ type wpcCache struct {
 	mu        sync.Mutex               //
 }
 
-func (wpc *wpcCache) Epoch(ccn int) (stop bool) {
+func (wpc *wpcCache) reload() {
 	// fetch current snapshot of the whole collection
 	ccn, wpl := wpc.routesAPI.FetchWaypoints()
 
@@ -40,14 +40,21 @@ func (wpc *wpcCache) Epoch(ccn int) (stop bool) {
 		wpc.wpBySeq[wpl[i].Seq] = &wpl[i]
 	}
 	wpc.ccn = ccn
+}
 
+func (wpc *wpcCache) Epoch(ccn int) (stop bool) {
+	wpc.reload()
 	return
 }
 
 // Created
 func (wpc *wpcCache) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
-	if livecoll.IsOld(ccn, wpc.ccn) { // ignore out-dated events
+	if ccnDistance := livecoll.ChgDistance(ccn, wpc.ccn); ccnDistance <= 0 {
+		// ignore out-dated events
 		return
+	} else if ccnDistance > 1 {
+		// event ccn is ahead of locally known ccn, reload
+		wpc.reload()
 	}
 	wp := eo.(*routes.Waypoint)
 
@@ -63,8 +70,12 @@ func (wpc *wpcCache) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
 
 // Updated
 func (wpc *wpcCache) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
-	if livecoll.IsOld(ccn, wpc.ccn) { // ignore out-dated events
+	if ccnDistance := livecoll.ChgDistance(ccn, wpc.ccn); ccnDistance <= 0 {
+		// ignore out-dated events
 		return
+	} else if ccnDistance > 1 {
+		// event ccn is ahead of locally known ccn, reload
+		wpc.reload()
 	}
 	wp := eo.(*routes.Waypoint)
 
@@ -78,8 +89,12 @@ func (wpc *wpcCache) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 
 // Deleted
 func (wpc *wpcCache) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
-	if livecoll.IsOld(ccn, wpc.ccn) { // ignore out-dated events
+	if ccnDistance := livecoll.ChgDistance(ccn, wpc.ccn); ccnDistance <= 0 {
+		// ignore out-dated events
 		return
+	} else if ccnDistance > 1 {
+		// event ccn is ahead of locally known ccn, reload
+		wpc.reload()
 	}
 	wp := eo.(*routes.Waypoint)
 
@@ -207,7 +222,7 @@ type Driving struct {
 func (dr *Driving) toldToMove(moving bool) {
 	dr.cndMoving.L.Lock()
 	dr.moving = moving
-	dr.cndMoving.Signal()
+	dr.cndMoving.Broadcast()
 	dr.cndMoving.L.Unlock()
 }
 
@@ -238,6 +253,7 @@ func (dr *Driving) start() {
 
 	for dr.waitToldBeMoving() {
 
+		wpcLive.routesAPI.EnsureConn()
 		wps := wpcLive.wps
 
 		if len(wps) < 1 {

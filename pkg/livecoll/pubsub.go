@@ -19,11 +19,11 @@ type Publisher interface {
 	FetchAll() (ccn int, members []Member)
 }
 
-func IsOld(ccn int, thanCCN int) bool {
+func ChgDistance(toCCN, fromCCN int) int {
 	// CCN is monotonic incremental, but may overflow/wraparound after many changes occurred
-	if (ccn >= 0 && thanCCN >= 0) || (ccn < 0 && thanCCN < 0) {
+	if (toCCN >= 0 && fromCCN >= 0) || (toCCN < 0 && fromCCN < 0) {
 		// same sign, assuming NO overflow/wraparound has occurred
-		return ccn < thanCCN
+		return toCCN - fromCCN
 	}
 	// different sign, assuming overflow/wraparound has occurred
 	// todo figure out logic to handle this case

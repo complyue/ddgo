@@ -22,6 +22,13 @@
         ws = window.wpWatcher = new WebSocket('ws://' + location.host
             + '/api/' + window.tid + '/waypoint',
         );
+        (function keepAlive() {
+            if (ws !== window.wpWatcher) {
+                return; // disarmed
+            }
+            ws.send('{}');
+            setTimeout(keepAlive, 3000);
+        })()
         ws.onopen = function () {
         };
         ws.onmessage = (me) => {
@@ -46,32 +53,32 @@
                 if (!result.wps) {
                     return
                 }
-                for (let {_id, seq, label, x, y} of result.wps) {
+                for (let { _id, seq, label, x, y } of result.wps) {
                     let wp = waypointTmpl.clone();
-                    wp.data({'_id': _id, 'seq': seq});
+                    wp.data({ '_id': _id, 'seq': seq });
                     wp.find('.Label').text(label);
                     wp.appendTo(showArea);
-                    wp.css({left: x, top: y});
+                    wp.css({ left: x, top: y });
                     wpById[_id] = wp;
                 }
 
             } else if ('created' === result.type) {
 
-                let {_id, seq, label, x, y} = result.wp;
+                let { _id, seq, label, x, y } = result.wp;
 
                 let wp = waypointTmpl.clone();
-                wp.data({'_id': _id, 'seq': seq});
+                wp.data({ '_id': _id, 'seq': seq });
                 wp.find('.Label').text(label);
                 wp.appendTo(showArea);
-                wp.css({left: x, top: y});
+                wp.css({ left: x, top: y });
                 wpById[_id] = wp;
 
             } else if ('moved' === result.type) {
 
-                let {tid, seq, _id, x, y} = result;
+                let { tid, seq, _id, x, y } = result;
                 // show the movement use a straight line path.
                 let wp = wpById[_id];
-                wp.animate({left: x, top: y});
+                wp.animate({ left: x, top: y });
 
             } else {
                 console.error('WP watching ws msg not understood:', result);
@@ -108,6 +115,13 @@
         ws = window.truckWatcher = new WebSocket('ws://' + location.host
             + '/api/' + window.tid + '/truck',
         );
+        (function keepAlive() {
+            if (ws !== window.truckWatcher) {
+                return; // disarmed
+            }
+            ws.send('{}');
+            setTimeout(keepAlive, 3000);
+        })()
         ws.onopen = function () {
         };
         ws.onmessage = (me) => {
@@ -132,36 +146,36 @@
                 if (!result.trucks) {
                     return
                 }
-                for (let {_id, seq, label, x, y, moving} of result.trucks) {
+                for (let { _id, seq, label, x, y, moving } of result.trucks) {
                     let truck = truckTmpl.clone();
-                    truck.data({'_id': _id, 'seq': seq, 'moving': moving});
+                    truck.data({ '_id': _id, 'seq': seq, 'moving': moving });
                     truck.find('.Label').text(label);
                     truck.appendTo(showArea);
-                    truck.css({left: x, top: y});
+                    truck.css({ left: x, top: y });
                     truckById[_id] = truck;
                 }
 
             } else if ('created' === result.type) {
 
-                let {_id, seq, label, x, y, moving} = result.truck;
+                let { _id, seq, label, x, y, moving } = result.truck;
 
                 let truck = truckTmpl.clone();
-                truck.data({'_id': _id, 'seq': seq, 'moving': moving});
+                truck.data({ '_id': _id, 'seq': seq, 'moving': moving });
                 truck.find('.Label').text(label);
                 truck.appendTo(showArea);
-                truck.css({left: x, top: y});
+                truck.css({ left: x, top: y });
                 truckById[_id] = truck;
 
             } else if ('moved' === result.type) {
 
-                let {_id, x, y} = result;
+                let { _id, x, y } = result;
                 // show the movement use a straight line path.
                 let truck = truckById[_id];
-                truck.animate({left: x, top: y});
+                truck.animate({ left: x, top: y });
 
             } else if ('stopped' === result.type) {
 
-                let {_id, moving} = result;
+                let { _id, moving } = result;
                 let truck = truckById[_id];
                 truck.data('moving', !!moving);
 
@@ -252,11 +266,11 @@
         me.stopImmediatePropagation();
         me.preventDefault();
 
-        let {posOffset, mouseX, mouseY, avatar} = dragInfo;
+        let { posOffset, mouseX, mouseY, avatar } = dragInfo;
         let newX = posOffset.left + me.pageX - mouseX, newY = posOffset.top + me.pageY - mouseY;
 
         // todo draw an arrow line to illustrate the tobe movement
-        avatar.css({left: newX, top: newY});
+        avatar.css({ left: newX, top: newY });
         // todo consider triggering backend actions during drag in realtime ?
     }).mouseup(async function (me) {
         if (null === draggedObj) {
@@ -265,7 +279,7 @@
         me.stopImmediatePropagation();
         me.preventDefault();
 
-        let {posOffset, mouseX, mouseY, avatar} = draggedObj.data('dragInfo');
+        let { posOffset, mouseX, mouseY, avatar } = draggedObj.data('dragInfo');
         draggedObj.data('dragInfo', null); // clear drag info anyway
         let newX = posOffset.left + me.pageX - mouseX, newY = posOffset.top + me.pageY - mouseY;
 

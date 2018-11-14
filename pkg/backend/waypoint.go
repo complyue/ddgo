@@ -20,7 +20,7 @@ type wpcChgRelay struct {
 	ccn       int                 // known change number of the live waypoint collection
 }
 
-func (wpc *wpcChgRelay) Epoch(ccn int) (stop bool) {
+func (wpc *wpcChgRelay) reload() (stop bool) {
 	// fetch current snapshot of the whole collection
 	ccn, wpl := wpc.routesAPI.FetchWaypoints()
 
@@ -37,10 +37,18 @@ func (wpc *wpcChgRelay) Epoch(ccn int) (stop bool) {
 	return
 }
 
+func (wpc *wpcChgRelay) Epoch(ccn int) (stop bool) {
+	return wpc.reload()
+}
+
 // Created
 func (wpc *wpcChgRelay) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
-	if livecoll.IsOld(ccn, wpc.ccn) { // ignore out-dated events
+	if ccnDistance := livecoll.ChgDistance(ccn, wpc.ccn); ccnDistance <= 0 {
+		// ignore out-dated events
 		return
+	} else if ccnDistance > 1 {
+		// event ccn is ahead of locally known ccn, reload
+		return wpc.reload()
 	}
 	wp := eo.(*routes.Waypoint)
 
@@ -59,8 +67,12 @@ func (wpc *wpcChgRelay) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
 
 // Updated
 func (wpc *wpcChgRelay) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
-	if livecoll.IsOld(ccn, wpc.ccn) { // ignore out-dated events
+	if ccnDistance := livecoll.ChgDistance(ccn, wpc.ccn); ccnDistance <= 0 {
+		// ignore out-dated events
 		return
+	} else if ccnDistance > 1 {
+		// event ccn is ahead of locally known ccn, reload
+		return wpc.reload()
 	}
 	wp := eo.(*routes.Waypoint)
 
@@ -79,8 +91,12 @@ func (wpc *wpcChgRelay) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 
 // Deleted
 func (wpc *wpcChgRelay) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
-	if livecoll.IsOld(ccn, wpc.ccn) { // ignore out-dated events
+	if ccnDistance := livecoll.ChgDistance(ccn, wpc.ccn); ccnDistance <= 0 {
+		// ignore out-dated events
 		return
+	} else if ccnDistance > 1 {
+		// event ccn is ahead of locally known ccn, reload
+		return wpc.reload()
 	}
 	// wp := eo.(*routes.Waypoint)
 
@@ -125,7 +141,27 @@ func showWaypoints(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	routesAPI.SubscribeWaypoints(&wpcChgRelay{routesAPI: routesAPI, wsc: wsc})
+	subr := &wpcChgRelay{
+		routesAPI: routesAPI, wsc: wsc, ccn: 0,
+	}
+	routesAPI.SubscribeWaypoints(subr)
+	subr.reload()
+
+	go func() {
+		for {
+			var msgIn map[string]interface{}
+			if err := wsc.ReadJSON(msgIn); err != nil {
+				glog.Errorf("WS error: %+v", err)
+				return
+			}
+			if len(msgIn) <= 0 {
+				// keep alive
+				routesAPI.EnsureConn()
+			} else {
+				// todo other ops
+			}
+		}
+	}()
 }
 
 func addWaypoint(w http.ResponseWriter, r *http.Request) {

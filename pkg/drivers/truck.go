@@ -198,9 +198,12 @@ func (dele tkDelegate) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 	}
 	tk := eo.(*Truck)
 	po := ctx.MustPoToPeer()
-	po.NotifBSON(fmt.Sprintf(`
+	if err := po.NotifBSON(fmt.Sprintf(`
 TkUpdated(%#v)
-`, ccn), tk, "&Truck{}")
+`, ccn), tk, "&Truck{}"); err != nil {
+		stop = true
+		return
+	}
 	return
 }
 
