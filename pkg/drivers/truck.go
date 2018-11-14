@@ -300,7 +300,10 @@ func MoveTruck(tid string, seq int, id string, x, y float64) error {
 func (ctx *serviceContext) MoveTruck(
 	tid string, seq int, id string, x, y float64,
 ) error {
-	return MoveTruck(tid, seq, id, x, y)
+	glog.V(1).Infof(" * Moving truck %v to (%v,%v) by service ...", seq, x, y)
+	err := MoveTruck(tid, seq, id, x, y)
+	glog.V(1).Infof(" * Moved truck %v to (%v,%v) by service, err=%+v.", seq, x, y, err)
+	return err
 }
 
 func StopTruck(tid string, seq int, id string, moving bool) error {
@@ -339,5 +342,8 @@ func StopTruck(tid string, seq int, id string, moving bool) error {
 func (ctx *serviceContext) StopTruck(
 	tid string, seq int, id string, moving bool,
 ) error {
-	return StopTruck(tid, seq, id, moving)
+	glog.V(1).Infof(" * Making truck %v to moving=%v by service ...", seq, moving)
+	err := StopTruck(tid, seq, id, moving)
+	glog.V(1).Infof(" * Made truck %v to moving=%v by service.", seq, moving)
+	return err
 }

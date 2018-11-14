@@ -160,10 +160,13 @@ func (api *ConsumerAPI) MoveTruck(
 		return MoveTruck(tid, seq, id, x, y)
 	}
 
+	glog.V(1).Infof(" * Requesting truck %v to move to (%v,%v) ...", seq, x, y)
 	_, po := api.conn()
-	return po.Notif(fmt.Sprintf(`
-MoveTruck(%#v,%#v,%#v,%#v,%#v)
-`, tid, seq, id, x, y))
+	err := po.Notif(fmt.Sprintf(`
+	MoveTruck(%#v,%#v,%#v,%#v,%#v)
+	`, tid, seq, id, x, y))
+	glog.V(1).Infof(" * Requested truck %v to move to (%v,%v).", seq, x, y)
+	return err
 }
 
 func (api *ConsumerAPI) StopTruck(
@@ -173,10 +176,13 @@ func (api *ConsumerAPI) StopTruck(
 		return StopTruck(tid, seq, id, moving)
 	}
 
+	glog.V(1).Infof(" * Requested truck %v to be moving=%v.", seq, moving)
 	_, po := api.conn()
-	return po.Notif(fmt.Sprintf(`
+	err := po.Notif(fmt.Sprintf(`
 StopTruck(%#v,%#v,%#v,%#v)
 `, tid, seq, id, moving))
+	glog.V(1).Infof(" * Requested truck %v to be moving=%v.", seq, moving)
+	return err
 }
 
 func (api *ConsumerAPI) FetchTrucks() (ccn int, tkl []Truck) {
