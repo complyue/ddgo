@@ -37,8 +37,13 @@
             if ('string' !== typeof me.data) {
                 throw 'WS msg of type ' + typeof me.data + ' ?!';
             }
-
-            let result = JSON.parse(me.data);
+            let result
+            try {
+                result = JSON.parse(me.data);
+            } catch (e) {
+                console.error('WS msg not in JSON ?!', me);
+                throw e;
+            }
             if ('err' === result.type) {
                 console.error('WP watching error:', result);
                 debugger;
