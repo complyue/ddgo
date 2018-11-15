@@ -201,17 +201,16 @@ WpUpdated(%#v)
 }
 
 // Deleted
-func (dele wpDelegate) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
+func (dele wpDelegate) MemberDeleted(ccn int, id interface{}) (stop bool) {
 	ctx := dele.ctx
 	if ctx.Cancelled() {
 		stop = true
 		return
 	}
-	wp := eo.(*Waypoint)
 	po := ctx.MustPoToPeer()
 	po.NotifBSON(fmt.Sprintf(`
-WpDeleted(%#v)
-`, ccn), wp, "&Waypoint{}")
+WpDeleted(%#v,%#v)
+`, ccn), id, "&Waypoint{}")
 	return
 }
 
@@ -245,7 +244,7 @@ func AddWaypoint(tid string, x, y float64) error {
 	// add to in-memory collection and index, after successful db insert
 	wp := &waypoint.Waypoint
 	wpCollection.bySeq[waypoint.Seq] = wp
-	wpCollection.Create(wp)
+	wpCollection.Created(wp)
 
 	return nil
 }
@@ -282,7 +281,7 @@ func MoveWaypoint(tid string, seq int, id string, x, y float64) error {
 	// update in-memory value, after successful db update
 	wp.X, wp.Y = x, y
 
-	wpCollection.Update(wp)
+	wpCollection.Updated(wp)
 
 	return nil
 }

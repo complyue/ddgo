@@ -10,7 +10,7 @@ type Subscriber interface {
 
 	MemberCreated(ccn int, eo Member) (stop bool)
 	MemberUpdated(ccn int, eo Member) (stop bool)
-	MemberDeleted(ccn int, eo Member) (stop bool)
+	MemberDeleted(ccn int, id interface{}) (stop bool)
 }
 
 type Publisher interface {
@@ -35,12 +35,12 @@ func Dispatch(ccES *isoevt.EventStream, subr Subscriber, watchingCallback func()
 		switch evo := evt.(type) {
 		case EpochEvent:
 			return subr.Epoch(evo.CCN)
-		case CreateEvent:
+		case CreatedEvent:
 			return subr.MemberCreated(evo.CCN, evo.EO)
-		case UpdateEvent:
+		case UpdatedEvent:
 			return subr.MemberUpdated(evo.CCN, evo.EO)
-		case DeleteEvent:
-			return subr.MemberDeleted(evo.CCN, evo.EO)
+		case DeletedEvent:
+			return subr.MemberDeleted(evo.CCN, evo.ID)
 		default:
 			panic(errors.Errorf("Event of type %T ?!", evt))
 		}
@@ -51,17 +51,17 @@ type EpochEvent struct {
 	CCN int
 }
 
-type CreateEvent struct {
+type CreatedEvent struct {
 	CCN int
 	EO  Member
 }
 
-type UpdateEvent struct {
+type UpdatedEvent struct {
 	CCN int
 	EO  Member
 }
 
-type DeleteEvent struct {
+type DeletedEvent struct {
 	CCN int
-	EO  Member
+	ID  interface{}
 }

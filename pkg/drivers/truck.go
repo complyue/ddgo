@@ -208,17 +208,16 @@ TkUpdated(%#v)
 }
 
 // Deleted
-func (dele tkDelegate) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
+func (dele tkDelegate) MemberDeleted(ccn int, id interface{}) (stop bool) {
 	ctx := dele.ctx
 	if ctx.Cancelled() {
 		stop = true
 		return
 	}
-	tk := eo.(*Truck)
 	po := ctx.MustPoToPeer()
-	po.NotifBSON(fmt.Sprintf(`
-TkDeleted(%#v)
-`, ccn), tk, "&Truck{}")
+	po.Notif(fmt.Sprintf(`
+TkDeleted(%#v,%#v)
+`, ccn, id))
 	return
 }
 
@@ -253,7 +252,7 @@ func AddTruck(tid string, x, y float64) error {
 	// add to in-memory collection and index, after successful db insert
 	tk := &Truck.Truck
 	tkCollection.bySeq[Truck.Seq] = tk
-	tkCollection.Create(tk)
+	tkCollection.Created(tk)
 
 	return nil
 }
@@ -290,7 +289,7 @@ func MoveTruck(tid string, seq int, id string, x, y float64) error {
 	// update in-memory value, after successful db update
 	tk.X, tk.Y = x, y
 
-	tkCollection.Update(tk)
+	tkCollection.Updated(tk)
 
 	return nil
 }
@@ -332,7 +331,7 @@ func StopTruck(tid string, seq int, id string, moving bool) error {
 	// update in-memory value, after successful db update
 	tk.Moving = moving
 
-	tkCollection.Update(tk)
+	tkCollection.Updated(tk)
 
 	return nil
 }

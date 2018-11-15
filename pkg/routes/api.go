@@ -26,9 +26,6 @@ func NewConsumerAPI(tid string) *ConsumerAPI {
 	return &ConsumerAPI{
 		tid: tid,
 
-		// create reconnection channel
-		chReconn: make(chan struct{}),
-
 		// no collection change stream unless subscribed
 		wpCCES: nil,
 
@@ -44,11 +41,10 @@ type ConsumerAPI struct {
 	mu sync.Mutex //
 
 	tid string
-	// will be closed on reconnection (with a new chan allocated）
-	chReconn chan struct{}
 
 	// collection change event stream for waypoints
 	wpCCES *isoevt.EventStream
+	wpCCN  int // last known ccn of waypoint collection
 
 	svc *hbi.TCPConn
 }
@@ -73,6 +69,13 @@ func (ctx *consumerContext) TypesToExpose() []interface{} {
 // Tid getter
 func (api *ConsumerAPI) Tid() string {
 	return api.tid
+}
+
+func (api *ConsumerAPI) EnsureAlive() {
+	if api.mono {
+		return
+	}
+	api.EnsureConn()
 }
 
 const ReconnectDelay = 3 * time.Second
@@ -106,12 +109,6 @@ func (api *ConsumerAPI) EnsureConn() *hbi.TCPConn {
 					"", api.tid, true)
 				if err == nil {
 					api.svc = svc
-					// allocate a new reconnection channel, close existing one if present
-					chRecon := api.chReconn
-					api.chReconn = make(chan struct{})
-					if chRecon != nil {
-						close(chRecon)
-					}
 				}
 			}
 		}()
@@ -200,6 +197,9 @@ func (api *ConsumerAPI) SubscribeWaypoints(subr livecoll.Subscriber) {
 		return
 	}
 
+	// ensure the wire connected
+	api.EnsureConn()
+
 	if api.wpCCES == nil { // quick check without sync
 		func() {
 			api.mu.Lock()
@@ -214,9 +214,11 @@ func (api *ConsumerAPI) SubscribeWaypoints(subr livecoll.Subscriber) {
 	}
 	// now api.wpCCES is guarranteed to not be nil
 	// consumer side event stream dispatching for waypoint changes
-	livecoll.Dispatch(api.wpCCES, subr, nil)
-	// will ensure the wire subscribed as well
-	api.EnsureConn()
+	livecoll.Dispatch(api.wpCCES, subr, func() bool {
+		// fire Epoch event upon watching started
+		subr.Epoch(api.wpCCN)
+		return false
+	})
 }
 
 func (ctx *consumerContext) wpCCES() *isoevt.EventStream {
@@ -247,7 +249,7 @@ func (ctx *consumerContext) WpCreated(ccn int) {
 	}
 	wp := eo.(*Waypoint)
 	cces := ctx.wpCCES()
-	cces.Post(livecoll.CreateEvent{ccn, wp})
+	cces.Post(livecoll.CreatedEvent{ccn, wp})
 }
 
 // Update
@@ -258,7 +260,7 @@ func (ctx *consumerContext) WpUpdated(ccn int) {
 	}
 	wp := eo.(*Waypoint)
 	cces := ctx.wpCCES()
-	cces.Post(livecoll.UpdateEvent{ccn, wp})
+	cces.Post(livecoll.UpdatedEvent{ccn, wp})
 }
 
 // Delete
@@ -269,5 +271,5 @@ func (ctx *consumerContext) WpDeleted(ccn int) {
 	}
 	wp := eo.(*Waypoint)
 	cces := ctx.wpCCES()
-	cces.Post(livecoll.DeleteEvent{ccn, wp})
+	cces.Post(livecoll.DeletedEvent{ccn, wp})
 }

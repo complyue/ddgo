@@ -94,7 +94,7 @@ func (wpc *wpcChgRelay) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 }
 
 // Deleted
-func (wpc *wpcChgRelay) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
+func (wpc *wpcChgRelay) MemberDeleted(ccn int, id interface{}) (stop bool) {
 	if ccnDistance := livecoll.ChgDistance(ccn, wpc.ccn); ccnDistance <= 0 {
 		// ignore out-dated events
 		return
@@ -103,7 +103,6 @@ func (wpc *wpcChgRelay) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
 		glog.V(1).Infof(" ** Reloading wpc due to CCN changed %v -> %v", wpc.ccn, ccn)
 		return wpc.reload()
 	}
-	// wp := eo.(*routes.Waypoint)
 
 	wpc.ccn = ccn
 
@@ -129,13 +128,6 @@ func showWaypoints(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			err = errors.RichError(err)
 			glog.Error(err)
-			if e := wsc.WriteJSON(map[string]interface{}{
-				"type": "err",
-				"msg":  fmt.Sprintf("%+v", err),
-			}); e != nil {
-				glog.Error(e)
-				return
-			}
 		}
 	}()
 
@@ -150,7 +142,6 @@ func showWaypoints(w http.ResponseWriter, r *http.Request) {
 		routesAPI: routesAPI, wsc: wsc, ccn: 0,
 	}
 	routesAPI.SubscribeWaypoints(subr)
-	subr.reload()
 
 	go func() {
 		for {
@@ -161,7 +152,7 @@ func showWaypoints(w http.ResponseWriter, r *http.Request) {
 			}
 			if len(msgIn) <= 0 {
 				// keep alive
-				routesAPI.EnsureConn()
+				routesAPI.EnsureAlive()
 			} else {
 				// todo other ops
 			}

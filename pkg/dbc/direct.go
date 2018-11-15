@@ -2,11 +2,12 @@ package dbc
 
 import (
 	"encoding/json"
+	"io/ioutil"
+	"os"
+
 	"github.com/complyue/hbigo/pkg/errors"
 	"github.com/globalsign/mgo"
 	"github.com/golang/glog"
-	"io/ioutil"
-	"os"
 )
 
 var session *mgo.Session
@@ -24,11 +25,11 @@ func DB() *mgo.Database {
 		}
 	}()
 
-	if db == nil {
-		servicesEtc, err := ioutil.ReadFile("etc/services.json")
-		if err != nil {
+	for db == nil {
+		servicesEtc, e := ioutil.ReadFile("etc/services.json")
+		if e != nil {
 			cwd, _ := os.Getwd()
-			err = errors.Wrapf(err, "Can NOT read etc/services.json`, [%s] may not be the right directory ?\n", cwd)
+			err = errors.Wrapf(e, "Can NOT read etc/services.json`, [%s] may not be the right directory ?\n", cwd)
 			return nil
 		}
 

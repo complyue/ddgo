@@ -102,7 +102,7 @@ func (tkc *tkcChgRelay) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 }
 
 // Deleted
-func (tkc *tkcChgRelay) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
+func (tkc *tkcChgRelay) MemberDeleted(ccn int, id interface{}) (stop bool) {
 	if ccnDistance := livecoll.ChgDistance(ccn, tkc.ccn); ccnDistance <= 0 {
 		// ignore out-dated events
 		return
@@ -111,7 +111,6 @@ func (tkc *tkcChgRelay) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
 		glog.V(1).Infof(" ** Reloading tkc due to epoch CCN %v -> %v", tkc.ccn, ccn)
 		return tkc.reload()
 	}
-	// tk := eo.(*drivers.Truck)
 
 	tkc.ccn = ccn
 
@@ -158,7 +157,6 @@ func showTrucks(w http.ResponseWriter, r *http.Request) {
 		driversAPI: driversAPI, wsc: wsc, ccn: 0,
 	}
 	driversAPI.SubscribeTrucks(subr)
-	subr.reload()
 
 	// kickoff drivers team TODO find a better place to do this
 	driversAPI.DriversKickoff(tid)
@@ -172,7 +170,7 @@ func showTrucks(w http.ResponseWriter, r *http.Request) {
 			}
 			if len(msgIn) <= 0 {
 				// keep alive
-				driversAPI.EnsureConn()
+				driversAPI.EnsureAlive()
 			} else {
 				// todo other ops
 			}

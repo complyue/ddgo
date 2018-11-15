@@ -23,6 +23,7 @@ type wpcCache struct {
 	routesAPI *routes.ConsumerAPI      // consuming api to routes service
 	ccn       int                      // known change number of the live waypoint collection
 	wps       []routes.Waypoint        // local cached waypoint values
+	idToSeq   map[interface{}]int      // lookup seq by id
 	wpBySeq   map[int]*routes.Waypoint // map seq to pointer to waypoints within the `wps` slice
 	mu        sync.Mutex               //
 }
@@ -35,8 +36,10 @@ func (wpc *wpcCache) reload() {
 	wpc.mu.Lock()
 	defer wpc.mu.Unlock()
 	wpc.wps = wpl
+	wpc.idToSeq = make(map[interface{}]int)
 	wpc.wpBySeq = make(map[int]*routes.Waypoint)
 	for i := range wpl {
+		wpc.idToSeq[wpl[i].GetID()] = wpl[i].Seq
 		wpc.wpBySeq[wpl[i].Seq] = &wpl[i]
 	}
 	wpc.ccn = ccn
@@ -57,6 +60,7 @@ func (wpc *wpcCache) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
 		// event ccn is ahead of locally known ccn, reload
 		glog.V(1).Infof(" ** Reloading wpc due to CCN changed %v -> %v", wpc.ccn, ccn)
 		wpc.reload()
+		return
 	}
 	wp := eo.(*routes.Waypoint)
 
@@ -64,6 +68,7 @@ func (wpc *wpcCache) MemberCreated(ccn int, eo livecoll.Member) (stop bool) {
 	defer wpc.mu.Unlock()
 	i := len(wpc.wps)
 	wpc.wps = append(wpc.wps, *wp)
+	wpc.idToSeq[wp.GetID()] = wp.Seq
 	wpc.wpBySeq[wp.Seq] = &wpc.wps[i]
 	wpc.ccn = ccn
 
@@ -79,11 +84,13 @@ func (wpc *wpcCache) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 		// event ccn is ahead of locally known ccn, reload
 		glog.V(1).Infof(" ** Reloading wpc due to CCN changed %v -> %v", wpc.ccn, ccn)
 		wpc.reload()
+		return
 	}
 	wp := eo.(*routes.Waypoint)
 
 	wpc.mu.Lock()
 	defer wpc.mu.Unlock()
+	wpc.idToSeq[wp.GetID()] = wp.Seq
 	*wpc.wpBySeq[wp.Seq] = *wp
 	wpc.ccn = ccn
 
@@ -91,7 +98,7 @@ func (wpc *wpcCache) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 }
 
 // Deleted
-func (wpc *wpcCache) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
+func (wpc *wpcCache) MemberDeleted(ccn int, id interface{}) (stop bool) {
 	if ccnDistance := livecoll.ChgDistance(ccn, wpc.ccn); ccnDistance <= 0 {
 		// ignore out-dated events
 		return
@@ -99,13 +106,16 @@ func (wpc *wpcCache) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
 		// event ccn is ahead of locally known ccn, reload
 		glog.V(1).Infof(" ** Reloading wpc due to CCN changed %v -> %v", wpc.ccn, ccn)
 		wpc.reload()
+		return
 	}
-	wp := eo.(*routes.Waypoint)
 
 	wpc.mu.Lock()
 	defer wpc.mu.Unlock()
 	// todo remove wp from the slice `wpc.wps`
-	delete(wpc.wpBySeq, wp.Seq)
+	if seq, ok := wpc.idToSeq[id]; ok {
+		delete(wpc.idToSeq, id)
+		delete(wpc.wpBySeq, seq)
+	}
 	wpc.ccn = ccn
 
 	return
@@ -146,7 +156,7 @@ func (tkc *tkcReact) MemberUpdated(ccn int, eo livecoll.Member) (stop bool) {
 }
 
 // Deleted
-func (tkc *tkcReact) MemberDeleted(ccn int, eo livecoll.Member) (stop bool) {
+func (tkc *tkcReact) MemberDeleted(ccn int, id interface{}) (stop bool) {
 	// todo process delete event
 	return
 }
@@ -266,7 +276,7 @@ func (dr *Driving) start() {
 
 	for dr.waitToldBeMoving() {
 
-		wpcLive.routesAPI.EnsureConn()
+		wpcLive.routesAPI.EnsureAlive()
 		wps := wpcLive.wps
 
 		if len(wps) < 1 {

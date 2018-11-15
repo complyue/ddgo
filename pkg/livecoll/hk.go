@@ -16,9 +16,9 @@ type HouseKeeper interface {
 
 	Read(id interface{}) (Member, bool)
 
-	Create(mo Member)
-	Update(mo Member)
-	Delete(mo Member)
+	Created(mo Member)
+	Updated(mo Member)
+	Deleted(id interface{})
 
 	Publisher
 }
@@ -26,7 +26,7 @@ type HouseKeeper interface {
 func NewHouseKeeper() HouseKeeper {
 	return &houseKeeper{
 		ccn:     0,
-		members: make(map[interface{}]Member),
+		members: nil, // only store members if Load() ever called
 		ccES:    isoevt.NewStream(),
 	}
 }
@@ -56,6 +56,10 @@ func (hk *houseKeeper) Load(fullList []Member) {
 }
 
 func (hk *houseKeeper) Read(id interface{}) (Member, bool) {
+	if hk.members == nil {
+		panic("Not a loaded collection.")
+	}
+
 	hk.mu.RLock()
 	defer hk.mu.RUnlock()
 
@@ -63,48 +67,66 @@ func (hk *houseKeeper) Read(id interface{}) (Member, bool) {
 	return mbyid, ok
 }
 
-func (hk *houseKeeper) Create(mo Member) {
-	hk.mu.Lock()
-	defer hk.mu.Unlock()
+func (hk *houseKeeper) Created(mo Member) {
+	if hk.members != nil {
+		func() {
+			hk.mu.Lock()
+			defer hk.mu.Unlock()
 
-	id := mo.GetID()
-	hk.members[id] = mo
+			id := mo.GetID()
+			hk.members[id] = mo
+		}()
+	}
+
 	hk.ccn++
 
 	{
-		hk.ccES.Post(CreateEvent{hk.ccn, mo})
+		hk.ccES.Post(CreatedEvent{hk.ccn, mo})
 	}
 }
 
-func (hk *houseKeeper) Update(mo Member) {
-	hk.mu.Lock()
-	defer hk.mu.Unlock()
+func (hk *houseKeeper) Updated(mo Member) {
+	if hk.members != nil {
+		func() {
+			hk.mu.Lock()
+			defer hk.mu.Unlock()
 
-	id := mo.GetID()
-	hk.members[id] = mo
+			id := mo.GetID()
+			hk.members[id] = mo
+		}()
+	}
+
 	hk.ccn++
 
 	{
-		hk.ccES.Post(UpdateEvent{hk.ccn, mo})
+		hk.ccES.Post(UpdatedEvent{hk.ccn, mo})
 	}
 }
 
-func (hk *houseKeeper) Delete(mo Member) {
-	hk.mu.Lock()
-	defer hk.mu.Unlock()
+func (hk *houseKeeper) Deleted(id interface{}) {
+	if hk.members != nil {
+		func() {
+			hk.mu.Lock()
+			defer hk.mu.Unlock()
 
-	id := mo.GetID()
-	if cmo, ok := hk.members[id]; !ok || cmo != mo {
-		panic(errors.Errorf("Removing non member %T - %+v", mo, mo))
+			if _, ok := hk.members[id]; !ok {
+				panic(errors.Errorf("Removing non member id %+v", id))
+			}
+		}()
 	}
+
 	hk.ccn++
 
 	{
-		hk.ccES.Post(DeleteEvent{hk.ccn, mo})
+		hk.ccES.Post(DeletedEvent{hk.ccn, id})
 	}
 }
 
 func (hk *houseKeeper) FetchAll() (ccn int, members []Member) {
+	if hk.members == nil {
+		panic("Not a loaded collection.")
+	}
+
 	hk.mu.RLock()
 	defer hk.mu.RUnlock()
 

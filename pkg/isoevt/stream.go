@@ -65,11 +65,19 @@ func (es *EventStream) Watch(
 
 		if watchingCallback != nil {
 			// signal watching started.
-			// the watching cb should avoid panic by itself, or let the process crash intentionally
-			if watchingCallback() {
-				// watching cb opt to stop watching
-				return
-			}
+			func() {
+				defer func() {
+					if err := recover(); err != nil {
+						// the watching cb opt to stop watching by panic
+						log.Printf("Event watching callback error: %+v\n", err)
+						runtime.Goexit()
+					}
+				}()
+				if stop := watchingCallback(); stop {
+					// watching cb opt to stop watching
+					runtime.Goexit()
+				}
+			}()
 		}
 
 		for { // continue dispatching until finished or failed
