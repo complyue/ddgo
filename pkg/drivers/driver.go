@@ -45,6 +45,11 @@ func (wpc *wpcCache) reload() {
 	wpc.ccn = ccn
 }
 
+func (wpc *wpcCache) Subscribed() (stop bool) {
+	wpc.reload()
+	return
+}
+
 func (wpc *wpcCache) Epoch(ccn int) (stop bool) {
 	glog.V(1).Infof(" ** Reloading wpc due to epoch CCN %v -> %v", wpc.ccn, ccn)
 	wpc.reload()
@@ -123,6 +128,11 @@ func (wpc *wpcCache) MemberDeleted(ccn int, id interface{}) (stop bool) {
 
 type tkcReact struct {
 	// subscribe to trucks live collection, which managed by the local drivers service
+}
+
+func (tkc *tkcReact) Subscribed() (stop bool) {
+	// nop
+	return
 }
 
 func (tkc *tkcReact) Epoch(ccn int) (stop bool) {

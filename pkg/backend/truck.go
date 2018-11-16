@@ -38,6 +38,10 @@ func (tkc *tkcChgRelay) reload() bool {
 	return false
 }
 
+func (tkc *tkcChgRelay) Subscribed() (stop bool) {
+	return tkc.reload()
+}
+
 func (tkc *tkcChgRelay) Epoch(ccn int) (stop bool) {
 	glog.V(1).Infof(" ** Reloading tkc due to epoch CCN %v -> %v", tkc.ccn, ccn)
 	return tkc.reload()

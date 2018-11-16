@@ -38,6 +38,10 @@ func (wpc *wpcChgRelay) reload() (stop bool) {
 	return
 }
 
+func (wpc *wpcChgRelay) Subscribed() (stop bool) {
+	return wpc.reload()
+}
+
 func (wpc *wpcChgRelay) Epoch(ccn int) (stop bool) {
 	glog.V(1).Infof(" ** Reloading wpc due to epoch CCN %v -> %v", wpc.ccn, ccn)
 	return wpc.reload()

@@ -157,6 +157,11 @@ func (ctx *serviceContext) SubscribeWaypoints(tid string) {
 	wpCollection.Subscribe(dele)
 }
 
+func (dele wpDelegate) Subscribed() (stop bool) {
+	// not relaying Subscribed event over hbi wire
+	return
+}
+
 func (dele wpDelegate) Epoch(ccn int) (stop bool) {
 	ctx := dele.ctx
 	if ctx.Cancelled() {

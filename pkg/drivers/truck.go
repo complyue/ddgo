@@ -161,6 +161,11 @@ func (ctx *serviceContext) SubscribeTrucks(tid string) {
 	tkCollection.Subscribe(dele)
 }
 
+func (dele tkDelegate) Subscribed() (stop bool) {
+	// not relaying Subscribed event over hbi wire
+	return
+}
+
 func (dele tkDelegate) Epoch(ccn int) (stop bool) {
 	ctx := dele.ctx
 	if ctx.Cancelled() {
