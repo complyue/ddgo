@@ -9,6 +9,7 @@
       "cwd": "${workspaceFolder}",
       "program": "${workspaceFolder}/cmd/web/backend",
       "args": [
+        "-dev",
         "-mono"
       ]
     },
@@ -40,7 +41,8 @@
       "request": "launch",
       "mode": "debug",
       "cwd": "${workspaceFolder}",
-      "program": "${workspaceFolder}/cmd/web/backend"
+      "program": "${workspaceFolder}/cmd/web/backend",
+      "args": []
     }
   ]
 }
