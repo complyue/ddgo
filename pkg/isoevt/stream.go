@@ -2,9 +2,11 @@
 package isoevt
 
 import (
-	"log"
 	"runtime"
 	"sync"
+
+	"github.com/complyue/hbigo/pkg/errors"
+	"github.com/golang/glog"
 )
 
 func NewStream() *EventStream {
@@ -19,11 +21,11 @@ type EventStream struct {
 }
 
 func (es *EventStream) Post(evt interface{}) {
+	es.cnd.L.Lock()
+	defer es.cnd.L.Unlock()
 	newTail := &evtNode{
 		evt: evt,
 	}
-	es.cnd.L.Lock()
-	defer es.cnd.L.Unlock()
 	if es.tail != nil {
 		es.tail.next = newTail
 	}
@@ -69,7 +71,7 @@ func (es *EventStream) Watch(
 				defer func() {
 					if err := recover(); err != nil {
 						// the watching cb opt to stop watching by panic
-						log.Printf("Event watching callback error: %+v\n", err)
+						glog.Errorf("Event watching cancelled due to callback error: %+v\n", errors.RichError(err))
 						runtime.Goexit()
 					}
 				}()
@@ -86,7 +88,7 @@ func (es *EventStream) Watch(
 					defer func() { // catch watcher failure and stop
 						if err := recover(); err != nil {
 							// the watcher cb opt to stop watching by panic
-							log.Printf("Event watcher error: %+v\n", err)
+							glog.Errorf("Event watching stopped due to callback error: %+v\n", errors.RichError(err))
 							runtime.Goexit()
 						}
 					}()
